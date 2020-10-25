@@ -11,7 +11,159 @@ Last modified: Jul 2019
 from __future__ import print_function
 
 import numpy as np
+from typing import Tuple, List, Dict
 from scipy.spatial import ConvexHull
+
+from pyquaternion import Quaternion
+
+# ABAHNASY
+
+class Box:
+    """Simple data class representing a 3d box including, label, score and velocity."""
+
+    def __init__(
+        self,
+        center: (List[float], Tuple[float]),
+        size: (List[float], Tuple[float]),
+        heading_angle: float,
+        # orientation: Quaternion,
+        label: int = np.nan
+        # score: float = np.nan,
+        # velocity: Tuple = (np.nan, np.nan, np.nan),
+        # name: str = None,
+        # token: str = None,
+    ):
+        if np.any(np.isnan(center)):
+            raise ValueError("Center coordinates should not have NaN values but we got {}".format(center))
+
+        if np.any(np.isnan(size)):
+            raise ValueError("Size values should not have NaN values but we got {}".format(size))
+
+        if len(center) != 3:
+            raise ValueError("Center should be defined by 3 numbers but we got {}".format(center))
+
+        if len(size) != 3:
+            raise ValueError("Size should be defined by 3 numbers but we got {}".format(size))
+        
+        if np.isnan(label):
+            raise ValueError("Label should be valid but we got {}".format(label))
+
+        self.center = np.array(center) # x,y,z respectively
+        self.lwh = np.array(size) # length: x, width: y, height: z
+        self.heading_angle = heading_angle
+        self.orientation = Quaternion(axis=(0.0, 0.0, 1.0), radians=heading_angle)
+        self.label = int(label) if not np.isnan(label) else label
+        # rotation around z axis
+        
+        # self.score = float(score) if not np.isnan(score) else score
+        # self.velocity = np.array(velocity)
+        # self.name = name
+        # self.token = token
+        
+
+    
+    def __repr__(self):
+        repr_str = (
+            "label: {}, xyz: [{:.2f}, {:.2f}, {:.2f}], lwh: [{:.2f}, {:.2f}, {:.2f}], "
+            "rot axis: [{:.2f}, {:.2f}, {:.2f}], ang(degrees): {:.2f}, ang(rad): {:.2f}"
+        )
+
+        return repr_str.format(
+            self.label,
+            self.center[0],
+            self.center[1],
+            self.center[2],
+            self.lwh[0],
+            self.lwh[1],
+            self.lwh[2],
+            self.orientation.axis[0],
+            self.orientation.axis[1],
+            self.orientation.axis[2],
+            self.orientation.degrees,
+            self.orientation.radians,
+        )
+    def __eq__(slef):
+        pass # TODO
+
+    @property
+    def rotation_matrix(self) -> np.ndarray:
+        """Return a rotation matrix.
+
+        Returns: <np.float: 3, 3>. The box's rotation matrix.
+
+        """
+        return self.orientation.rotation_matrix
+    
+    def corners(self) -> np.ndarray: # TODO
+        """Returns the bounding box corners.
+
+        Args:
+
+        Returns: First four corners are the ones facing forward.
+                The last four are the ones facing backwards.
+
+        """
+
+        length, width, height = self.lwh
+
+        # 3D bounding box corners. (Convention: x points forward, y to the left, z up.)
+        x_corners = length / 2 * np.array([1, 1, 1, 1, -1, -1, -1, -1])
+        y_corners = width / 2 * np.array([1, -1, -1, 1, 1, -1, -1, 1])
+        z_corners = height / 2 * np.array([1, 1, -1, -1, 1, 1, -1, -1])
+        corners = np.vstack((x_corners, y_corners, z_corners))
+
+        # # Rotate
+        corners = np.dot(self.rotation_matrix, corners)
+
+        # # Translate
+        x, y, z = self.center
+        corners[0, :] = corners[0, :] + x
+        corners[1, :] = corners[1, :] + y
+        corners[2, :] = corners[2, :] + z
+
+        return corners
+        
+def view_points(points: np.ndarray, view: np.ndarray, normalize: bool) -> np.ndarray:
+    """This is a helper class that maps 3d points to a 2d plane. It can be used to implement both perspective and
+    orthographic projections. It first applies the dot product between the points and the view. By convention,
+    the view should be such that the data is projected onto the first 2 axis. It then optionally applies a
+    normalization along the third dimension.
+
+    For a perspective projection the view should be a 3x3 camera matrix, and normalize=True
+    For an orthographic projection with translation the view is a 3x4 matrix and normalize=False
+    For an orthographic projection without translation the view is a 3x3 matrix (optionally 3x4 with last columns
+    all zeros) and normalize=False
+
+    Args:
+        points: <np.float32: 3, n> Matrix of points, where each point (x, y, z) is along each column.
+        view: <np.float32: n, n>. Defines an arbitrary projection (n <= 4).
+        The projection should be such that the corners are projected onto the first 2 axis.
+        normalize: Whether to normalize the remaining coordinate (along the third axis).
+
+    Returns: <np.float32: 3, n>. Mapped point. If normalize=False, the third coordinate is the height.
+
+    """
+
+    assert view.shape[0] <= 4
+    assert view.shape[1] <= 4
+    assert points.shape[0] == 3
+
+    viewpad = np.eye(4)
+    viewpad[: view.shape[0], : view.shape[1]] = view
+
+    nbr_points = points.shape[1]
+
+    # Do operation in homogenous coordinates
+    points = np.concatenate((points, np.ones((1, nbr_points))))
+    points = np.dot(viewpad, points)
+    points = points[:3, :]
+
+    if normalize:
+        points = points / points[2:3, :].repeat(3, 0).reshape(3, nbr_points)
+
+    return points
+
+# END ABAHNASY
 
 def polygon_clip(subjectPolygon, clipPolygon):
    """ Clip a polygon with another polygon.
