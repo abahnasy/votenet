@@ -23,11 +23,11 @@ class Box:
 
     def __init__(
         self,
-        center: (List[float], Tuple[float]),
+        center: (List[float], Tuple[float]), # TODO: rename to centroid
         size: (List[float], Tuple[float]),
         heading_angle: float,
         # orientation: Quaternion,
-        label: int = np.nan
+        label: int = np.nan # TODO: rename to classlabel
         # score: float = np.nan,
         # velocity: Tuple = (np.nan, np.nan, np.nan),
         # name: str = None,

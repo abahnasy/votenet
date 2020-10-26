@@ -27,6 +27,32 @@ from box_util import Box
 
 
 
+def rotx(t):
+    """Rotation about the x-axis."""
+    c = np.cos(t)
+    s = np.sin(t)
+    return np.array([[1,  0,  0],
+                     [0,  c, -s],
+                     [0,  s,  c]])
+
+
+def roty(t):
+    """Rotation about the y-axis."""
+    c = np.cos(t)
+    s = np.sin(t)
+    return np.array([[c,  0,  s],
+                     [0,  1,  0],
+                     [-s, 0,  c]])
+
+
+def rotz(t):
+    """Rotation about the z-axis."""
+    c = np.cos(t)
+    s = np.sin(t)
+    return np.array([[c, -s,  0],
+                     [s,  c,  0],
+                     [0,  0,  1]])
+
 
 def preprocess_waymo_data(root_dir, split='training', verbose: bool =False):
     """
@@ -130,7 +156,16 @@ def preprocess_waymo_data(root_dir, split='training', verbose: bool =False):
     pickle_out.close()
 
 
-    
+def in_hull(p, hull):
+    from scipy.spatial import Delaunay
+    if not isinstance(hull,Delaunay):
+        hull = Delaunay(hull)
+    return hull.find_simplex(p)>=0
+
+def extract_pc_in_box3d(pc, box3d):
+    ''' pc: (N,3), box3d: (8,3) '''
+    box3d_roi_inds = in_hull(pc[:,0:3], box3d)
+    return pc[box3d_roi_inds,:], box3d_roi_inds
 
 
 
@@ -146,6 +181,7 @@ def read_frame_bboxes(label_file_name):
     pickle_in = open(label_file_name, 'rb')
     bboxes = pickle.load(pickle_in)
     pickle_in.close()
+    print("Loaded file type is ", type(bboxes), "length of the list is ", len(bboxes))
     return bboxes
 
 def load_point_cloud(point_cloud_filename):

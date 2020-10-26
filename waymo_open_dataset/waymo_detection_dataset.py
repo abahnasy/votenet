@@ -23,6 +23,7 @@ Date: 2019
 import os
 import sys
 import numpy as np
+import pickle
 from torch.utils.data import Dataset
 import scipy.io as sio # to load .mat files for depth points
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -30,35 +31,29 @@ ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 import pc_util
-import sunrgbd_utils
-from model_util_sunrgbd import SunrgbdDatasetConfig
+import waymo_utils
+from model_util_waymo import WaymoDatasetConfig
 
-DC = SunrgbdDatasetConfig() # dataset specific config
+DC = WaymoDatasetConfig() # dataset specific config
 MAX_NUM_OBJ = 64 # maximum number of objects allowed per scene
-MEAN_COLOR_RGB = np.array([0.5,0.5,0.5]) # sunrgbd color is in 0~1
+# MEAN_COLOR_RGB = np.array([0.5,0.5,0.5]) # sunrgbd color is in 0~1
 
-class SunrgbdDetectionVotesDataset(Dataset):
-    def __init__(self, split_set='train', num_points=20000,
-        use_color=False, use_height=False, use_v1=False,
-        augment=False, scan_idx_list=None):
+class WaymoDetectionVotesDataset(Dataset):
+    def __init__(self, split_set='training', num_points=60000,
+        use_height=False,
+        augment=False):
 
-        assert(num_points<=50000)
-        self.use_v1 = use_v1 
-        if use_v1:
-            self.data_path = os.path.join(ROOT_DIR,
-                'sunrgbd/sunrgbd_pc_bbox_votes_50k_v1_%s'%(split_set))
-        else:
-            self.data_path = os.path.join(ROOT_DIR,
-                'sunrgbd/sunrgbd_pc_bbox_votes_50k_v2_%s'%(split_set))
+        assert(num_points<=60000)
+        self.split_set = split_set
+        self.data_path = os.path.join(BASE_DIR,
+                'dataset') # TODO: rename to votes data path
 
-        self.raw_data_path = os.path.join(ROOT_DIR, 'sunrgbd/sunrgbd_trainval')
-        self.scan_names = sorted(list(set([os.path.basename(x)[0:6] \
-            for x in os.listdir(self.data_path)])))
-        if scan_idx_list is not None:
-            self.scan_names = [self.scan_names[i] for i in scan_idx_list]
+        # self.raw_data_path = os.path.join(ROOT_DIR, 'dataset')
+        
+        # access votes folder and get segment names
+        self.scan_names = sorted(list(set([os.path.basename(x).split("_")[1].split('.')[0] for x in os.listdir(os.path.join(self.data_path, 'training', 'votes'))])))
         self.num_points = num_points
         self.augment = augment
-        self.use_color = use_color
         self.use_height = use_height
        
     def __len__(self):
@@ -83,33 +78,32 @@ class SunrgbdDetectionVotesDataset(Dataset):
             max_gt_bboxes: unused
         """
         scan_name = self.scan_names[idx]
-        point_cloud = np.load(os.path.join(self.data_path, scan_name)+'_pc.npz')['pc'] # Nx6
-        bboxes = np.load(os.path.join(self.data_path, scan_name)+'_bbox.npy') # K,8
-        point_votes = np.load(os.path.join(self.data_path, scan_name)+'_votes.npz')['point_votes'] # Nx10
+        point_cloud = np.load(os.path.join(self.data_path, self.split_set, 'votes' ,'pc_{}.npz'.format(scan_name)))['pc'] # Nx3
+        with open(os.path.join(self.data_path, self.split_set, 'label', 'label_{}'.format(scan_name)), 'rb') as fp:    
+            bboxes_list = pickle.load(fp) # list of Box objects
+        # create bboxes matrix
+        bboxes = np.zeros((len(bboxes_list), 8))
+        for idx in range(len(bboxes_list)):
+            
+            bboxes[idx, 0:3] = bboxes_list[idx].center
+            bboxes[idx, 3:6] = bboxes_list[idx].lwh
+            bboxes[idx, 6] = bboxes_list[idx].heading_angle
+            bboxes[idx, 7] = bboxes_list[idx].label
+        point_votes = np.load(os.path.join(self.data_path, self.split_set, 'votes' ,'votes_{}.npz'.format(scan_name)))['point_votes'] # Nx10
 
-        if not self.use_color:
-            point_cloud = point_cloud[:,0:3]
-        else:
-            point_cloud = point_cloud[:,0:6]
-            point_cloud[:,3:] = (point_cloud[:,3:]-MEAN_COLOR_RGB)
+        
+        point_cloud = point_cloud[:,0:3]
 
         if self.use_height:
             floor_height = np.percentile(point_cloud[:,2],0.99)
             height = point_cloud[:,2] - floor_height
-            point_cloud = np.concatenate([point_cloud, np.expand_dims(height, 1)],1) # (N,4) or (N,7)
+            point_cloud = np.concatenate([point_cloud, np.expand_dims(height, 1)],1) # (N,4)
 
         # ------------------------------- DATA AUGMENTATION ------------------------------
         if self.augment:
-            if np.random.random() > 0.5:
-                # Flipping along the YZ plane
-                point_cloud[:,0] = -1 * point_cloud[:,0]
-                bboxes[:,0] = -1 * bboxes[:,0]
-                bboxes[:,6] = np.pi - bboxes[:,6]
-                point_votes[:,[1,4,7]] = -1 * point_votes[:,[1,4,7]]
-
             # Rotation along up-axis/Z-axis
             rot_angle = (np.random.random()*np.pi/3) - np.pi/6 # -30 ~ +30 degree
-            rot_mat = sunrgbd_utils.rotz(rot_angle)
+            rot_mat = waymo_utils.rotz(rot_angle)
 
             point_votes_end = np.zeros_like(point_votes)
             point_votes_end[:,1:4] = np.dot(point_cloud[:,0:3] + point_votes[:,1:4], np.transpose(rot_mat))
@@ -123,16 +117,7 @@ class SunrgbdDetectionVotesDataset(Dataset):
             point_votes[:,4:7] = point_votes_end[:,4:7] - point_cloud[:,0:3]
             point_votes[:,7:10] = point_votes_end[:,7:10] - point_cloud[:,0:3]
 
-            # Augment RGB color
-            if self.use_color:
-                rgb_color = point_cloud[:,3:6] + MEAN_COLOR_RGB
-                rgb_color *= (1+0.4*np.random.random(3)-0.2) # brightness change for each channel
-                rgb_color += (0.1*np.random.random(3)-0.05) # color shift for each channel
-                rgb_color += np.expand_dims((0.05*np.random.random(point_cloud.shape[0])-0.025), -1) # jittering on each pixel
-                rgb_color = np.clip(rgb_color, 0, 1)
-                # randomly drop out 30% of the points' colors
-                rgb_color *= np.expand_dims(np.random.random(point_cloud.shape[0])>0.3,-1)
-                point_cloud[:,3:6] = rgb_color - MEAN_COLOR_RGB
+            
 
             # Augment point cloud scale: 0.85x-1.15x
             scale_ratio = np.random.random()*0.3+0.85
@@ -165,7 +150,7 @@ class SunrgbdDetectionVotesDataset(Dataset):
             angle_class, angle_residual = DC.angle2class(bbox[6])
             # NOTE: The mean size stored in size2class is of full length of box edges,
             # while in sunrgbd_data.py data dumping we dumped *half* length l,w,h.. so have to time it by 2 here 
-            box3d_size = bbox[3:6]*2
+            box3d_size = bbox[3:6]
             size_class, size_residual = DC.size2class(box3d_size, DC.class2type[semantic_class])
             box3d_centers[i,:] = box3d_center
             angle_classes[i] = angle_class
@@ -178,7 +163,7 @@ class SunrgbdDetectionVotesDataset(Dataset):
         target_bboxes = np.zeros((MAX_NUM_OBJ, 6))
         for i in range(bboxes.shape[0]):
             bbox = bboxes[i]
-            corners_3d = sunrgbd_utils.my_compute_box_3d(bbox[0:3], bbox[3:6], bbox[6])
+            corners_3d = np.transpose(bboxes_list[i].corners()) # 8 x 3
             # compute axis aligned box
             xmin = np.min(corners_3d[:,0])
             ymin = np.min(corners_3d[:,1])
@@ -201,7 +186,7 @@ class SunrgbdDetectionVotesDataset(Dataset):
         ret_dict['size_class_label'] = size_classes.astype(np.int64)
         ret_dict['size_residual_label'] = size_residuals.astype(np.float32)
         target_bboxes_semcls = np.zeros((MAX_NUM_OBJ))
-        target_bboxes_semcls[0:bboxes.shape[0]] = bboxes[:,-1] # from 0 to 9
+        target_bboxes_semcls[0:bboxes.shape[0]] = bboxes[:,-1] # from 0 to 4
         ret_dict['sem_cls_label'] = target_bboxes_semcls.astype(np.int64)
         ret_dict['box_label_mask'] = target_bboxes_mask.astype(np.float32)
         ret_dict['vote_label'] = point_votes.astype(np.float32)
@@ -252,7 +237,7 @@ def viz_obb(pc, label, mask, angle_classes, angle_residuals,
 
 def get_sem_cls_statistics():
     """ Compute number of objects for each semantic class """
-    d = SunrgbdDetectionVotesDataset(use_height=True, use_color=True, use_v1=True, augment=True)
+    d = WaymoDetectionVotesDataset(use_height=True, augment=False)
     sem_cls_cnt = {}
     for i in range(len(d)):
         if i%10==0: print(i)
@@ -268,8 +253,8 @@ def get_sem_cls_statistics():
     print(sem_cls_cnt)
 
 if __name__=='__main__':
-    d = SunrgbdDetectionVotesDataset(use_height=True, use_color=True, use_v1=True, augment=True)
-    sample = d[200]
+    d = WaymoDetectionVotesDataset(use_height=True, augment=False)
+    sample = d[0]
     print(sample['vote_label'].shape, sample['vote_label_mask'].shape)
     pc_util.write_ply(sample['point_clouds'], 'pc.ply')
     viz_votes(sample['point_clouds'], sample['vote_label'], sample['vote_label_mask'])

@@ -110,7 +110,17 @@ def my_worker_init_fn(worker_id):
     np.random.seed(np.random.get_state()[1][0] + worker_id)
 
 # Create Dataset and Dataloader
-if FLAGS.dataset == 'sunrgbd':
+if FLAGS.dataset == 'waymo':
+    sys.path.append(os.path.join(ROOT_DIR, 'waymo_open_dataset'))
+    from waymo_detection_dataset import WaymoDetectionVotesDataset, MAX_NUM_OBJ
+    from model_util_waymo import WaymoDatasetConfig
+    DATASET_CONFIG = WaymoDatasetConfig()
+    TRAIN_DATASET = WaymoDetectionVotesDataset('train', num_points=NUM_POINT,
+        augment=False)
+    # TEST_DATASET = WaymoDetectionVotesDataset('val', num_points=NUM_POINT,
+        # augment=False)
+
+elif FLAGS.dataset == 'sunrgbd':
     sys.path.append(os.path.join(ROOT_DIR, 'sunrgbd'))
     from sunrgbd_detection_dataset import SunrgbdDetectionVotesDataset, MAX_NUM_OBJ
     from model_util_sunrgbd import SunrgbdDatasetConfig
@@ -137,12 +147,14 @@ elif FLAGS.dataset == 'scannet':
 else:
     print('Unknown dataset %s. Exiting...'%(FLAGS.dataset))
     exit(-1)
-print(len(TRAIN_DATASET), len(TEST_DATASET))
+# print(len(TRAIN_DATASET), len(TEST_DATASET))
+print(len(TRAIN_DATASET))
 TRAIN_DATALOADER = DataLoader(TRAIN_DATASET, batch_size=BATCH_SIZE,
     shuffle=True, num_workers=4, worker_init_fn=my_worker_init_fn)
-TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=BATCH_SIZE,
-    shuffle=True, num_workers=4, worker_init_fn=my_worker_init_fn)
-print(len(TRAIN_DATALOADER), len(TEST_DATALOADER))
+# TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=BATCH_SIZE,
+    # shuffle=True, num_workers=4, worker_init_fn=my_worker_init_fn)
+# print(len(TRAIN_DATALOADER), len(TEST_DATALOADER))
+print(len(TRAIN_DATALOADER))
 
 # Init the model and optimzier
 MODEL = importlib.import_module(FLAGS.model) # import network module

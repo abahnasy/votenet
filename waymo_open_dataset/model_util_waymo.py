@@ -11,25 +11,22 @@ sys.path.append(BASE_DIR)
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(os.path.join(ROOT_DIR, 'utils'))
 
-class SunrgbdDatasetConfig(object):
+class WaymoDatasetConfig(object):
     def __init__(self):
-        self.num_class = 10
-        self.num_heading_bin = 12
-        self.num_size_cluster = 10
+        self.num_class = 5
+        self.num_heading_bin = 12 # TODO: Figure out what is this?!
+        self.num_size_cluster = 5 # same as number of classes
 
-        self.type2class={'bed':0, 'table':1, 'sofa':2, 'chair':3, 'toilet':4, 'desk':5, 'dresser':6, 'night_stand':7, 'bookshelf':8, 'bathtub':9}
+        self.type2class = {'TYPE_UNKNOWN':0,'TYPE_VEHICLE':1,'TYPE_PEDESTRIAN':2,'TYPE_SIGN':3,'TYPE_CYCLIST':4}
         self.class2type = {self.type2class[t]:t for t in self.type2class}
-        self.type2onehotclass={'bed':0, 'table':1, 'sofa':2, 'chair':3, 'toilet':4, 'desk':5, 'dresser':6, 'night_stand':7, 'bookshelf':8, 'bathtub':9}
-        self.type_mean_size = {'bathtub': np.array([0.765840,1.398258,0.472728]),
-                          'bed': np.array([2.114256,1.620300,0.927272]),
-                          'bookshelf': np.array([0.404671,1.071108,1.688889]),
-                          'chair': np.array([0.591958,0.552978,0.827272]),
-                          'desk': np.array([0.695190,1.346299,0.736364]),
-                          'dresser': np.array([0.528526,1.002642,1.172878]),
-                          'night_stand': np.array([0.500618,0.632163,0.683424]),
-                          'sofa': np.array([0.923508,1.867419,0.845495]),
-                          'table': np.array([0.791118,1.279516,0.718182]),
-                          'toilet': np.array([0.699104,0.454178,0.756250])}
+        self.type2onehotclass={'TYPE_UNKNOWN':0, 'TYPE_VEHICLE':1, 'TYPE_PEDESTRIAN':2, 'TYPE_SIGN':3, 'TYPE_CYCLIST':4}
+        
+        # run --compute_median_size to get these values based on the current data you have
+        self.type_mean_size = {'TYPE_UNKNOWN': np.array([4.550878,2.069160,1.755000]), # Temp values, cannot find unknow in the current subset of the data
+                          'TYPE_VEHICLE': np.array([4.550878,2.069160,1.755000]),
+                          'TYPE_PEDESTRIAN': np.array([0.858276,0.819377,1.750000]),
+                          'TYPE_SIGN': np.array([0.097881,0.590338,0.650000]),
+                          'TYPE_CYCLIST': np.array([2.114592,0.859100,2.070000])}
 
         self.mean_size_arr = np.zeros((self.num_size_cluster, 3))
         for i in range(self.num_size_cluster):

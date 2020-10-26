@@ -14,6 +14,7 @@ Load depth with scipy.io
 '''
 
 import os
+from os.path import split
 import pickle
 import sys
 import numpy as np
@@ -25,7 +26,7 @@ import plotly.graph_objects as go
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 sys.path.append(os.path.join(BASE_DIR, '../utils/'))
-# import pc_util
+import pc_util
 import waymo_utils
 from box_util import view_points
 
@@ -94,6 +95,8 @@ class waymo_object(object):
         
     def get_label_objects(self, idx):
         label_filename = os.path.join(self.label_dir, 'label_{}'.format(self.idx2segment_id[idx]))
+        if not os.path.exists(label_filename):
+            raise Exception("Couldn't find objects file for idx {}".format(idx))
         return waymo_utils.read_frame_bboxes(label_filename)
 
 def data_viz(data_dir, idx: int = np.nan, verbose: bool = False):  
@@ -165,9 +168,9 @@ def data_viz(data_dir, idx: int = np.nan, verbose: bool = False):
     fig.update_layout(scene_aspectmode="data")
     fig.show()
 
-def extract_waymo_data(split, output_folder, num_point=20000,
+def extract_waymo_data(data_dir, split, output_folder, num_point=40000,
     type_whitelist=DEFAULT_TYPE_WHITELIST,
-    save_votes=False):
+    save_votes=False, verbose: bool = False):
     """ Extract scene point clouds and 
     bounding boxes (centroids, box sizes, heading angles, semantic classes).
     Dumped point clouds and boxes are in upright depth coord.
@@ -187,60 +190,55 @@ def extract_waymo_data(split, output_folder, num_point=20000,
             then three sets of GT votes for up to three objects. If the point is only in one
             object's OBB, then the three GT votes are the same.
     """
-    dataset = waymo_object('./dataset', split)
+    dataset = waymo_object(data_dir)
+    if verbose: print("Length of the loaded dataset is {}".format(len(dataset)))
 
     if not os.path.exists(output_folder):
         os.mkdir(output_folder)
 
-    for data_idx in data_idx_list:
-        print('------------- ', data_idx)
+    for data_idx in range(len(dataset)):
+        if verbose: print('Extracting information from index {}'.format(data_idx))
         objects = dataset.get_label_objects(data_idx)
+        print("objects type", type(objects))
+        if verbose: print("Number of loaded objects are {}".format(len(objects)))
 
         # Skip scenes with 0 object
-        if skip_empty_scene and (len(objects)==0 or \
-            len([obj for obj in objects if obj.classname in type_whitelist])==0):
+        if (len(objects) == 0 or \
+            len([obj for obj in objects if dataset.class2type[obj.label] in type_whitelist])== 0):
+                print("+++++++++++++++++ Skipping Empty Scene, check that ++++++++++++++++")
                 continue
 
-        object_list = []
-        for obj in objects:
-            if obj.classname not in type_whitelist: continue
-            obb = np.zeros((8))
-            obb[0:3] = obj.centroid
-            # Note that compared with that in data_viz, we do not time 2 to l,w.h
-            # neither do we flip the heading angle
-            obb[3:6] = np.array([obj.l,obj.w,obj.h])
-            obb[6] = obj.heading_angle
-            obb[7] = sunrgbd_utils.type2class[obj.classname]
-            object_list.append(obb)
-        if len(object_list)==0:
-            obbs = np.zeros((0,8))
-        else:
-            obbs = np.vstack(object_list) # (K,8)
-
-        pc_upright_depth = dataset.get_depth(data_idx)
+        pc_upright_depth = dataset.get_point_cloud(data_idx)
         pc_upright_depth_subsampled = pc_util.random_sampling(pc_upright_depth, num_point)
 
-        np.savez_compressed(os.path.join(output_folder,'%06d_pc.npz'%(data_idx)),
+        # save th subsampled point cloud
+        np.savez_compressed(os.path.join(output_folder,'pc_{}.npz'.format(dataset.idx2segment_id[data_idx])),
             pc=pc_upright_depth_subsampled)
-        np.save(os.path.join(output_folder, '%06d_bbox.npy'%(data_idx)), obbs)
+        # np.save(os.path.join(output_folder, '%06d_bbox.npy'%(data_idx)), obbs)
        
         if save_votes:
             N = pc_upright_depth_subsampled.shape[0]
+            if verbose: print("No. of subsamples points are {}".format(N))
             point_votes = np.zeros((N,10)) # 3 votes and 1 vote mask 
             point_vote_idx = np.zeros((N)).astype(np.int32) # in the range of [0,2]
             indices = np.arange(N)
             for obj in objects:
-                if obj.classname not in type_whitelist: continue
+                if dataset.class2type[obj.label] not in type_whitelist:
+                    if verbose: print("Skipping this object, not in the white list")
+                    continue
                 try:
                     # Find all points in this object's OBB
-                    box3d_pts_3d = sunrgbd_utils.my_compute_box_3d(obj.centroid,
-                        np.array([obj.l,obj.w,obj.h]), obj.heading_angle)
-                    pc_in_box3d,inds = sunrgbd_utils.extract_pc_in_box3d(\
+                    box3d_pts_3d = np.transpose(obj.corners())
+                    # if verbose: print(" 3d box data shape {}".format(box3d_pts_3d.shape))
+                    # if verbose: print("Box coordinates of the current object are {}".format(box3d_pts_3d))
+                    pc_in_box3d,inds = waymo_utils.extract_pc_in_box3d(\
                         pc_upright_depth_subsampled, box3d_pts_3d)
+                    if verbose: print("list of indices inside the box {}".format(inds))
+                    # if verbose: print("No. of points inside the box are {}".format(len(pc_in_box3d)))
                     # Assign first dimension to indicate it is in an object box
                     point_votes[inds,0] = 1
                     # Add the votes (all 0 if the point is not in any object's OBB)
-                    votes = np.expand_dims(obj.centroid,0) - pc_in_box3d[:,0:3]
+                    votes = np.expand_dims(obj.center,0) - pc_in_box3d[:,0:3]
                     sparse_inds = indices[inds] # turn dense True,False inds to sparse number-wise inds
                     for i in range(len(sparse_inds)):
                         j = sparse_inds[i]
@@ -250,9 +248,16 @@ def extract_waymo_data(split, output_folder, num_point=20000,
                             point_votes[j,4:7] = votes[i,:]
                             point_votes[j,7:10] = votes[i,:]
                     point_vote_idx[inds] = np.minimum(2, point_vote_idx[inds]+1)
-                except:
-                    print('ERROR ----',  data_idx, obj.classname)
-            np.savez_compressed(os.path.join(output_folder, '%06d_votes.npz'%(data_idx)),
+                except Exception as e:
+                    print(e)
+                    # print('ERROR, idx {}, classlabel {} and not found in whitelist'.format(data_idx, obj.label))
+                    raise
+            # TODO: replace pickle with savez_compressed
+            # with open(os.path.join(output_folder, 'votes_{}'.format(dataset.idx2segment_id[data_idx])), 'wb') as fp:
+            #     if verbose: print("size of votes for index {} is {}".format(data_idx, point_votes.shape))
+            #     pickle.dump(point_votes, fp) 
+                
+            np.savez_compressed(os.path.join(output_folder, 'votes_{}.npz'.format(dataset.idx2segment_id[data_idx])),
                 point_votes = point_votes)
 
     
@@ -276,15 +281,10 @@ def get_box3d_dim_statistics(data_dir, type_whitelist=DEFAULT_TYPE_WHITELIST, sa
             type_list.append(obj.label) 
             ry_list.append(obj.heading_angle)
 
-    
-    if save_path is not None:
-        with open(save_path,'wb') as fp:
-            pickle.dump(type_list, fp)
-            pickle.dump(dimension_list, fp)
-            pickle.dump(ry_list, fp)
 
     # Get average box size for different catgories
     # box3d_pts = np.vstack(dimension_list)
+    median_statistics = {}
     for class_type in sorted(set(type_list)):
         cnt = 0
         box3d_list = []
@@ -293,7 +293,13 @@ def get_box3d_dim_statistics(data_dir, type_whitelist=DEFAULT_TYPE_WHITELIST, sa
                 cnt += 1
                 box3d_list.append(dimension_list[i])
         median_box3d = np.median(box3d_list,0)
-        print("for class type {}, the median dimensions are {},{},{}".format(class_type, median_box3d[0], median_box3d[1], median_box3d[2]))
+        print("\'{}\': np.array([{:f},{:f},{:f}]),".format(class_type, median_box3d[0], median_box3d[1], median_box3d[2]))
+        median_statistics[class_type] = median_box3d[0], median_box3d[1], median_box3d[2]
+    
+    if save_path is not None:
+        with open(save_path,'wb') as fp:
+            pickle.dump(median_statistics, fp)
+
 
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
@@ -301,6 +307,7 @@ if __name__=='__main__':
     parser.add_argument('--preprocessing', action='store_true', help='Extract the data into readable foramt to be used for viz and training')
     parser.add_argument('--viz', action='store_true', help='Run data visualization.')
     parser.add_argument('--compute_median_size', action='store_true', help='Compute median 3D bounding box sizes for each class.')
+    parser.add_argument('--extract_votes', action='store_true')
     args = parser.parse_args()
 
     print("check reachable point")
@@ -315,3 +322,14 @@ if __name__=='__main__':
     if args.compute_median_size:
         get_box3d_dim_statistics(os.path.join(BASE_DIR, 'dataset'), verbose=args.verbose)
         exit()
+    
+    if(args.extract_votes):
+        extract_waymo_data(os.path.join(BASE_DIR, 'dataset'),
+        split = 'training', 
+        output_folder= os.path.join(BASE_DIR, 'dataset', 'training', 'votes'),
+        save_votes = True,
+        num_point = 60000,
+        verbose = args.verbose
+        )
+        exit()
+
