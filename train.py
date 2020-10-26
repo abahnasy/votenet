@@ -115,7 +115,7 @@ if FLAGS.dataset == 'waymo':
     from waymo_detection_dataset import WaymoDetectionVotesDataset, MAX_NUM_OBJ
     from model_util_waymo import WaymoDatasetConfig
     DATASET_CONFIG = WaymoDatasetConfig()
-    TRAIN_DATASET = WaymoDetectionVotesDataset('train', num_points=NUM_POINT,
+    TRAIN_DATASET = WaymoDetectionVotesDataset('training', num_points=NUM_POINT,
         augment=False)
     # TEST_DATASET = WaymoDetectionVotesDataset('val', num_points=NUM_POINT,
         # augment=False)
@@ -239,6 +239,7 @@ def train_one_epoch():
         # Forward pass
         optimizer.zero_grad()
         inputs = {'point_clouds': batch_data_label['point_clouds']}
+        print("DEBUGGING ++++ ", batch_data_label['point_clouds'].shape, type(batch_data_label['point_clouds']))
         end_points = net(inputs)
         
         # Compute loss and gradients, update parameters.

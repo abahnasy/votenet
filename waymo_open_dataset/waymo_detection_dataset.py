@@ -35,7 +35,7 @@ import waymo_utils
 from model_util_waymo import WaymoDatasetConfig
 
 DC = WaymoDatasetConfig() # dataset specific config
-MAX_NUM_OBJ = 64 # maximum number of objects allowed per scene
+MAX_NUM_OBJ = 128 # maximum number of objects allowed per scene
 # MEAN_COLOR_RGB = np.array([0.5,0.5,0.5]) # sunrgbd color is in 0~1
 
 class WaymoDetectionVotesDataset(Dataset):
