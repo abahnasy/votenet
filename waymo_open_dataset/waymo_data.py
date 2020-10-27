@@ -233,7 +233,7 @@ def extract_waymo_data(data_dir, split, output_folder, num_point=40000,
                     # if verbose: print("Box coordinates of the current object are {}".format(box3d_pts_3d))
                     pc_in_box3d,inds = waymo_utils.extract_pc_in_box3d(\
                         pc_upright_depth_subsampled, box3d_pts_3d)
-                    if verbose: print("list of indices inside the box {}".format(inds))
+                    # if verbose: print("list of indices inside the box {}".format(inds))
                     # if verbose: print("No. of points inside the box are {}".format(len(pc_in_box3d)))
                     # Assign first dimension to indicate it is in an object box
                     point_votes[inds,0] = 1

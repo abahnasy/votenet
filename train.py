@@ -116,7 +116,7 @@ if FLAGS.dataset == 'waymo':
     from model_util_waymo import WaymoDatasetConfig
     DATASET_CONFIG = WaymoDatasetConfig()
     TRAIN_DATASET = WaymoDetectionVotesDataset('training', num_points=NUM_POINT,
-        augment=False)
+        use_height = True, augment=False)
     # TEST_DATASET = WaymoDetectionVotesDataset('val', num_points=NUM_POINT,
         # augment=False)
 
@@ -233,6 +233,10 @@ def train_one_epoch():
     bnm_scheduler.step() # decay BN momentum
     net.train() # set model to training mode
     for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
+        # print("======DEBUGGING========")
+        # print("batch_idx", batch_idx)
+        # print("type of batch data label", type(batch_data_label))
+        print(batch_data_label)
         for key in batch_data_label:
             batch_data_label[key] = batch_data_label[key].to(device)
 
@@ -330,18 +334,18 @@ def train(start_epoch):
         # REF: https://github.com/pytorch/pytorch/issues/5059
         np.random.seed()
         train_one_epoch()
-        if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9: # Eval every 10 epochs
-            loss = evaluate_one_epoch()
-        # Save checkpoint
-        save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'loss': loss,
-                    }
-        try: # with nn.DataParallel() the net is added as a submodule of DataParallel
-            save_dict['model_state_dict'] = net.module.state_dict()
-        except:
-            save_dict['model_state_dict'] = net.state_dict()
-        torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint.tar'))
+        # if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9: # Eval every 10 epochs
+        #     loss = evaluate_one_epoch()
+        # # Save checkpoint
+        # save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
+        #             'optimizer_state_dict': optimizer.state_dict(),
+        #             'loss': loss,
+        #             }
+        # try: # with nn.DataParallel() the net is added as a submodule of DataParallel
+        #     save_dict['model_state_dict'] = net.module.state_dict()
+        # except:
+        #     save_dict['model_state_dict'] = net.state_dict()
+        # torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint.tar'))
 
 if __name__=='__main__':
     train(start_epoch)
