@@ -233,17 +233,12 @@ def train_one_epoch():
     bnm_scheduler.step() # decay BN momentum
     net.train() # set model to training mode
     for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
-        # print("======DEBUGGING========")
-        # print("batch_idx", batch_idx)
-        # print("type of batch data label", type(batch_data_label))
-        print(batch_data_label)
         for key in batch_data_label:
             batch_data_label[key] = batch_data_label[key].to(device)
 
         # Forward pass
         optimizer.zero_grad()
         inputs = {'point_clouds': batch_data_label['point_clouds']}
-        print("DEBUGGING ++++ ", batch_data_label['point_clouds'].shape, type(batch_data_label['point_clouds']))
         end_points = net(inputs)
         
         # Compute loss and gradients, update parameters.
@@ -260,7 +255,7 @@ def train_one_epoch():
                 if key not in stat_dict: stat_dict[key] = 0
                 stat_dict[key] += end_points[key].item()
 
-        batch_interval = 10
+        batch_interval = 1
         if (batch_idx+1) % batch_interval == 0:
             log_string(' ---- batch: %03d ----' % (batch_idx+1))
             TRAIN_VISUALIZER.log_scalars({key:stat_dict[key]/batch_interval for key in stat_dict},
