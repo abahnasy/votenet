@@ -1,1 +1,1 @@
-clear & python3 train.py --model=votenet --dataset=waymo --log_dir=log --dump_dir=dump --num_point=60000 --max_epoch=1 --batch_size=1 --overwrite --dump_results
+clear & python3 train.py --model=votenet --dataset=waymo --log_dir=log --dump_dir=dump --num_point=60000 --max_epoch=1 --batch_size=1 --overwrite --dump_results --num_target=128

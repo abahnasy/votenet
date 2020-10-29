@@ -234,14 +234,14 @@ def train_one_epoch():
     adjust_learning_rate(optimizer, EPOCH_CNT)
     bnm_scheduler.step() # decay BN momentum
     net.train() # set model to training mode
-    print("GPU Memory usage before adding the inputs from data loader is {}".format(torch.cuda.memory_allocated(0)))
+    print("\nGPU Memory usage before adding the inputs from data loader is {}".format(torch.cuda.memory_allocated(0)))
     for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
         print("Training Batch {}, Epoch {}".format(batch_idx, EPOCH_CNT))
         if FLAGS.verbose: print("\nmoving input data dictionary to device")
         for key in batch_data_label:
-            if FLAGS.verbose: print("key: {}".format(key))
+            if FLAGS.verbose: print("key: {}, dimensions: {}".format(key, batch_data_label[key].shape))
             batch_data_label[key] = batch_data_label[key].to(device)
-        print("GPU Memory usage after adding the inputs from data loader is {}".format(torch.cuda.memory_allocated(0)))
+        print("\nGPU Memory usage after adding the inputs from data loader is {}".format(torch.cuda.memory_allocated(0)))
 
         # Forward pass
         optimizer.zero_grad()
@@ -280,9 +280,9 @@ def train_one_epoch():
             for key in sorted(stat_dict.keys()):
                 log_string('mean %s: %f'%(key, stat_dict[key]/batch_interval))
                 stat_dict[key] = 0
-        # if FLAGS.verbose:
-            # print("since verbose is activated, we only run the model once !")
-            # break
+        if FLAGS.verbose:
+            print("since verbose is activated, we only run the model once !")
+            break
 
 def evaluate_one_epoch():
     stat_dict = {} # collect statistics
