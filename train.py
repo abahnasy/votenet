@@ -180,6 +180,7 @@ if torch.cuda.device_count() > 1:
   log_string("Let's use %d GPUs!" % (torch.cuda.device_count()))
   # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
   net = nn.DataParallel(net)
+
 net.to(device)
 criterion = MODEL.get_loss
 
@@ -233,15 +234,19 @@ def train_one_epoch():
     adjust_learning_rate(optimizer, EPOCH_CNT)
     bnm_scheduler.step() # decay BN momentum
     net.train() # set model to training mode
+    print("GPU Memory usage before adding the inputs from data loader is {}".format(torch.cuda.memory_allocated(0)))
     for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
+        print("Training Batch {}, Epoch {}".format(batch_idx, EPOCH_CNT))
+        if FLAGS.verbose: print("\nmoving input data dictionary to device")
         for key in batch_data_label:
-            if FLAGS.verbose: print("moving input data dictionary to device, key: {}".format(key))
+            if FLAGS.verbose: print("key: {}".format(key))
             batch_data_label[key] = batch_data_label[key].to(device)
+        print("GPU Memory usage after adding the inputs from data loader is {}".format(torch.cuda.memory_allocated(0)))
 
         # Forward pass
         optimizer.zero_grad()
         inputs = {'point_clouds': batch_data_label['point_clouds']}
-        if FLAGS.verbose: print("setting inputs dictionary with point clouds and feed it to the model, point cloud dimensions are {}".format(inputs['point_clouds'].shape))
+        if FLAGS.verbose: print("\n setting inputs dictionary with point clouds and feed it to the model, point cloud dimensions are {}".format(inputs['point_clouds'].shape))
         end_points = net(inputs)
         if FLAGS.verbose:
             print("contents of the end_points dictionary (return of the model) are ")
@@ -249,15 +254,17 @@ def train_one_epoch():
                 print("{}, dimensions: {}".format(key, end_points[key].shape))
             print("end of end_points keys !")
         
-        if FLAGS.verbose: print("Now computing the loss, loop over keys in batch data and add it to end_points dictionary")
+        if FLAGS.verbose: print("\n Now computing the loss, loop over keys in batch data and add it to end_points dictionary")
         # Compute loss and gradients, update parameters.
         for key in batch_data_label:
             assert(key not in end_points)
-            if FLAGS.verbose: print("{}".format(key))
+            if FLAGS.verbose: print("{}, size is {}".format(key, batch_data_label[key].shape))
             end_points[key] = batch_data_label[key]
         loss, end_points = criterion(end_points, DATASET_CONFIG)
         loss.backward()
+        print("GPU Memory usage after calling backward function {}".format(torch.cuda.memory_allocated(0)))
         optimizer.step()
+        print("GPU Memory usage after calling optimizer step function {}".format(torch.cuda.memory_allocated(0)))
 
         # Accumulate statistics and print out
         for key in end_points:
@@ -265,7 +272,7 @@ def train_one_epoch():
                 if key not in stat_dict: stat_dict[key] = 0
                 stat_dict[key] += end_points[key].item()
 
-        batch_interval = 1
+        batch_interval = 10
         if (batch_idx+1) % batch_interval == 0:
             log_string(' ---- batch: %03d ----' % (batch_idx+1))
             TRAIN_VISUALIZER.log_scalars({key:stat_dict[key]/batch_interval for key in stat_dict},
@@ -273,9 +280,9 @@ def train_one_epoch():
             for key in sorted(stat_dict.keys()):
                 log_string('mean %s: %f'%(key, stat_dict[key]/batch_interval))
                 stat_dict[key] = 0
-        if FLAGS.verbose:
-            print("since verbose is activated, we only run the model once !")
-            break
+        # if FLAGS.verbose:
+            # print("since verbose is activated, we only run the model once !")
+            # break
 
 def evaluate_one_epoch():
     stat_dict = {} # collect statistics
@@ -355,5 +362,11 @@ def train(start_epoch):
         #     save_dict['model_state_dict'] = net.state_dict()
         # torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint.tar'))
 
+def count_parameters(model):
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 if __name__=='__main__':
+    print("Total number of model parameters are {}".format(count_parameters(net)))
+    torch.cuda.empty_cache()
+    
     train(start_epoch)
