@@ -108,7 +108,8 @@ def parse_predictions(end_points, config_dict, verbose: bool = False):
                 box3d = pred_corners_3d[i,j,:,:] # (8,3)
                 # box3d = flip_axis_to_depth(box3d)
                 pc_in_box,inds = extract_pc_in_box3d(pc, box3d)
-                if len(pc_in_box) < 1: #chagned from 5 to 1, due to sparse nature of waymo data
+                # print("no of points in box is {}".format(len(pc_in_box)))
+                if len(pc_in_box) < 5: #TODO: should decide based on the average poitns per box for every cls ?!
                     nonempty_box_mask[i,j] = 0
         # -------------------------------------
 
@@ -167,8 +168,10 @@ def parse_predictions(end_points, config_dict, verbose: bool = False):
                 boxes_3d_with_prob[j,6] = obj_prob[i,j]
                 boxes_3d_with_prob[j,7] = pred_sem_cls[i,j] # only suppress if the two boxes are of the same class!!
             nonempty_box_inds = np.where(nonempty_box_mask[i,:]==1)[0]
+            print("Print no of nonempty_box_inds {}".format(len(nonempty_box_inds))) # TODO: verbose
             pick = nms_3d_faster_samecls(boxes_3d_with_prob[nonempty_box_mask[i,:]==1,:],
                 config_dict['nms_iou'], config_dict['use_old_type_nms'])
+            
             assert(len(pick)>0)
             pred_mask[i, nonempty_box_inds[pick]] = 1
         end_points['pred_mask'] = pred_mask
@@ -179,8 +182,10 @@ def parse_predictions(end_points, config_dict, verbose: bool = False):
         if config_dict['per_class_proposal']:
             cur_list = []
             for ii in range(config_dict['dataset_config'].num_class):
+                print("Looping over class {}".format(ii)) # TODO: verbose
                 cur_list += [(ii, pred_corners_3d[i,j], sem_cls_probs[i,j,ii]*obj_prob[i,j]) \
                     for j in range(pred_center.shape[1]) if pred_mask[i,j]==1 and obj_prob[i,j]>config_dict['conf_thresh']]
+                print("curr list has now size {}".format(len(cur_list))) # TODO: verbose
             batch_pred_map_cls.append(cur_list)
         else:
             batch_pred_map_cls.append([(pred_sem_cls[i,j].item(), pred_corners_3d[i,j], obj_prob[i,j]) \

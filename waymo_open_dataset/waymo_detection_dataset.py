@@ -191,7 +191,7 @@ class WaymoDetectionVotesDataset(Dataset):
         ret_dict['box_label_mask'] = target_bboxes_mask.astype(np.float32)
         ret_dict['vote_label'] = point_votes.astype(np.float32)
         ret_dict['vote_label_mask'] = point_votes_mask.astype(np.int64)
-        ret_dict['scan_idx'] = np.array(idx).astype(np.int64)
+        # ret_dict['scan_idx'] = np.array(idx).astype(np.int64) # TODO: wrong indicator, add frame name and segment name instead
         # ret_dict['max_gt_bboxes'] = max_bboxes #ABAHNASY: not used parameter
         return ret_dict
 

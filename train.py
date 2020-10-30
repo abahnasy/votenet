@@ -224,7 +224,7 @@ TEST_VISUALIZER = TfVisualizer(FLAGS, 'test')
 # Used for AP calculation
 CONFIG_DICT = {'remove_empty_box':False, 'use_3d_nms':True,
     'nms_iou':0.25, 'use_old_type_nms':False, 'cls_nms':True,
-    'per_class_proposal': True, 'conf_thresh':0.05,
+    'per_class_proposal': False, 'conf_thresh':0.05,
     'dataset_config':DATASET_CONFIG}
 
 # ------------------------------------------------------------------------- GLOBAL CONFIG END
@@ -234,37 +234,37 @@ def train_one_epoch():
     adjust_learning_rate(optimizer, EPOCH_CNT)
     bnm_scheduler.step() # decay BN momentum
     net.train() # set model to training mode
-    print("\nGPU Memory usage before adding the inputs from data loader is {}".format(torch.cuda.memory_allocated(0)))
+    # print("\nGPU Memory usage before adding the inputs from data loader is {}".format(torch.cuda.memory_allocated(0)))
     for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
         print("Training Batch {}, Epoch {}".format(batch_idx, EPOCH_CNT))
-        if FLAGS.verbose: print("\nmoving input data dictionary to device")
+        # if FLAGS.verbose: print("\nmoving input data dictionary to device")
         for key in batch_data_label:
-            if FLAGS.verbose: print("key: {}, dimensions: {}".format(key, batch_data_label[key].shape))
+            # if FLAGS.verbose: print("key: {}, dimensions: {}".format(key, batch_data_label[key].shape))
             batch_data_label[key] = batch_data_label[key].to(device)
-        print("\nGPU Memory usage after adding the inputs from data loader is {}".format(torch.cuda.memory_allocated(0)))
+        # print("\nGPU Memory usage after adding the inputs from data loader is {}".format(torch.cuda.memory_allocated(0)))
 
         # Forward pass
         optimizer.zero_grad()
         inputs = {'point_clouds': batch_data_label['point_clouds']}
-        if FLAGS.verbose: print("\n setting inputs dictionary with point clouds and feed it to the model, point cloud dimensions are {}".format(inputs['point_clouds'].shape))
+        # if FLAGS.verbose: print("\n setting inputs dictionary with point clouds and feed it to the model, point cloud dimensions are {}".format(inputs['point_clouds'].shape))
         end_points = net(inputs)
-        if FLAGS.verbose:
-            print("contents of the end_points dictionary (return of the model) are ")
-            for key, label in end_points.items():
-                print("{}, dimensions: {}".format(key, end_points[key].shape))
-            print("end of end_points keys !")
+        # if FLAGS.verbose:
+            # print("contents of the end_points dictionary (return of the model) are ")
+            # for key, label in end_points.items():
+                # print("{}, dimensions: {}".format(key, end_points[key].shape))
+            # print("end of end_points keys !")
         
-        if FLAGS.verbose: print("\n Now computing the loss, loop over keys in batch data and add it to end_points dictionary")
+        # if FLAGS.verbose: print("\n Now computing the loss, loop over keys in batch data and add it to end_points dictionary")
         # Compute loss and gradients, update parameters.
         for key in batch_data_label:
             assert(key not in end_points)
-            if FLAGS.verbose: print("{}, size is {}".format(key, batch_data_label[key].shape))
+            # if FLAGS.verbose: print("{}, size is {}".format(key, batch_data_label[key].shape))
             end_points[key] = batch_data_label[key]
         loss, end_points = criterion(end_points, DATASET_CONFIG)
         loss.backward()
-        print("GPU Memory usage after calling backward function {}".format(torch.cuda.memory_allocated(0)))
+        # print("GPU Memory usage after calling backward function {}".format(torch.cuda.memory_allocated(0)))
         optimizer.step()
-        print("GPU Memory usage after calling optimizer step function {}".format(torch.cuda.memory_allocated(0)))
+        # print("GPU Memory usage after calling optimizer step function {}".format(torch.cuda.memory_allocated(0)))
 
         # Accumulate statistics and print out
         for key in end_points:
@@ -280,9 +280,9 @@ def train_one_epoch():
             for key in sorted(stat_dict.keys()):
                 log_string('mean %s: %f'%(key, stat_dict[key]/batch_interval))
                 stat_dict[key] = 0
-        if FLAGS.verbose:
-            print("since verbose is activated, we only run the model once !")
-            break
+        # if FLAGS.verbose:
+            # print("since verbose is activated, we only run the model once !")
+            # break
 
 def evaluate_one_epoch():
     stat_dict = {} # collect statistics
@@ -365,8 +365,24 @@ def evaluate_overfit_run():
                 if key not in stat_dict: stat_dict[key] = 0
                 stat_dict[key] += end_points[key].item()
 
-        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
+        
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT)
+        print("number of ground Truth: {}".format(len(batch_gt_map_cls[0])))
+        
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
+        print("number of predictions: {}".format(len(batch_pred_map_cls[0])))
+
+        # Extract prediction for visialization
+        import pickle 
+        with open("./visualizations", 'wb') as fp:
+            dictie = {}
+            dictie['point_cloud'] = batch_data_label['point_clouds'].detach().cpu().numpy()
+            dictie['parsed_gt'] = batch_gt_map_cls
+            dictie['parsed_predictions'] = batch_pred_map_cls
+            pickle.dump(dictie, fp)
+
+        
+        
         # ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
 
         # Dump evaluation results for visualization
@@ -402,8 +418,8 @@ def train(start_epoch):
         # REF: https://github.com/pytorch/pytorch/issues/5059
         np.random.seed()
         train_one_epoch()
-        evaluate_overfit_run()
-        # if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9: # Eval every 10 epochs
+        if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9: # Eval every 10 epochs
+            evaluate_overfit_run()
         #     loss = evaluate_one_epoch()
         # # Save checkpoint
         # save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
