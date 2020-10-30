@@ -363,18 +363,40 @@ def get_3d_box(box_size, heading_angle, center):
     ''' box_size is array(l,w,h), heading_angle is radius clockwise from pos x axis, center is xyz of box center
         output (8,3) array for 3D box cornders
         Similar to utils/compute_orientation_3d
+        similar to the membr function in Box class
+        return 8x3 array
     '''
-    R = roty(heading_angle)
-    l,w,h = box_size
-    x_corners = [l/2,l/2,-l/2,-l/2,l/2,l/2,-l/2,-l/2];
-    y_corners = [h/2,h/2,h/2,h/2,-h/2,-h/2,-h/2,-h/2];
-    z_corners = [w/2,-w/2,-w/2,w/2,w/2,-w/2,-w/2,w/2];
-    corners_3d = np.dot(R, np.vstack([x_corners,y_corners,z_corners]))
-    corners_3d[0,:] = corners_3d[0,:] + center[0];
-    corners_3d[1,:] = corners_3d[1,:] + center[1];
-    corners_3d[2,:] = corners_3d[2,:] + center[2];
-    corners_3d = np.transpose(corners_3d)
-    return corners_3d
+    # R = roty(heading_angle)
+    # l,w,h = box_size
+    # x_corners = [l/2,l/2,-l/2,-l/2,l/2,l/2,-l/2,-l/2];
+    # y_corners = [h/2,h/2,h/2,h/2,-h/2,-h/2,-h/2,-h/2];
+    # z_corners = [w/2,-w/2,-w/2,w/2,w/2,-w/2,-w/2,w/2];
+    # corners_3d = np.dot(R, np.vstack([x_corners,y_corners,z_corners]))
+    # corners_3d[0,:] = corners_3d[0,:] + center[0];
+    # corners_3d[1,:] = corners_3d[1,:] + center[1];
+    # corners_3d[2,:] = corners_3d[2,:] + center[2];
+    # corners_3d = np.transpose(corners_3d)
+    # return corners_3d
+    length, width, height = box_size
+
+    orientation = Quaternion(axis=(0.0, 0.0, 1.0), radians=heading_angle)
+
+    # 3D bounding box corners. (Convention: x points forward, y to the left, z up.)
+    x_corners = length / 2 * np.array([1, 1, 1, 1, -1, -1, -1, -1])
+    y_corners = width / 2 * np.array([1, -1, -1, 1, 1, -1, -1, 1])
+    z_corners = height / 2 * np.array([1, 1, -1, -1, 1, 1, -1, -1])
+    corners = np.vstack((x_corners, y_corners, z_corners))
+
+    # # Rotate
+    corners = np.dot(orientation.rotation_matrix, corners)
+
+    # # Translate
+    x, y, z = center
+    corners[0, :] = corners[0, :] + x
+    corners[1, :] = corners[1, :] + y
+    corners[2, :] = corners[2, :] + z
+
+    return np.transpose(corners)
 
 def get_3d_box_batch(box_size, heading_angle, center):
     ''' box_size: [x1,x2,...,xn,3]

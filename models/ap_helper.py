@@ -180,7 +180,7 @@ def parse_predictions(end_points, config_dict):
 
     return batch_pred_map_cls
 
-def parse_groundtruths(end_points, config_dict):
+def parse_groundtruths(end_points, config_dict): # TODO: compare the result with viz function
     """ Parse groundtruth labels to OBB parameters.
     
     Args:
@@ -207,19 +207,29 @@ def parse_groundtruths(end_points, config_dict):
     bsize = center_label.shape[0]
 
     K2 = center_label.shape[1] # K2==MAX_NUM_OBJ
-    gt_corners_3d_upright_camera = np.zeros((bsize, K2, 8, 3))
-    gt_center_upright_camera = flip_axis_to_camera(center_label[:,:,0:3].detach().cpu().numpy())
+    gt_corners_3d = np.zeros((bsize, K2, 8, 3))
+    # gt_center_upright_camera = flip_axis_to_camera(center_label[:,:,0:3].detach().cpu().numpy())
     for i in range(bsize):
         for j in range(K2):
             if box_label_mask[i,j] == 0: continue
-            heading_angle = config_dict['dataset_config'].class2angle(heading_class_label[i,j].detach().cpu().numpy(), heading_residual_label[i,j].detach().cpu().numpy())
-            box_size = config_dict['dataset_config'].class2size(int(size_class_label[i,j].detach().cpu().numpy()), size_residual_label[i,j].detach().cpu().numpy())
-            corners_3d_upright_camera = get_3d_box(box_size, heading_angle, gt_center_upright_camera[i,j,:])
-            gt_corners_3d_upright_camera[i,j] = corners_3d_upright_camera
+            heading_angle = config_dict['dataset_config'].class2angle(
+                heading_class_label[i,j].detach().cpu().numpy(), 
+                heading_residual_label[i,j].detach().cpu().numpy()
+                )
+            box_size = config_dict['dataset_config'].class2size(
+                int(size_class_label[i,j].detach().cpu().numpy()), 
+                size_residual_label[i,j].detach().cpu().numpy()
+                )
+            corners_3d = get_3d_box(
+                box_size, 
+                heading_angle, 
+                center_label[i,j,0:3].detach().cpu().numpy()
+                )
+            gt_corners_3d[i,j] = corners_3d
 
     batch_gt_map_cls = []
     for i in range(bsize):
-        batch_gt_map_cls.append([(sem_cls_label[i,j].item(), gt_corners_3d_upright_camera[i,j]) for j in range(gt_corners_3d_upright_camera.shape[1]) if box_label_mask[i,j]==1])
+        batch_gt_map_cls.append([(sem_cls_label[i,j].item(), gt_corners_3d[i,j]) for j in range(gt_corners_3d.shape[1]) if box_label_mask[i,j]==1])
     end_points['batch_gt_map_cls'] = batch_gt_map_cls
 
     return batch_gt_map_cls
