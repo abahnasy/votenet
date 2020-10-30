@@ -41,7 +41,7 @@ def softmax(x):
     probs /= np.sum(probs, axis=len(shape)-1, keepdims=True)
     return probs
 
-def parse_predictions(end_points, config_dict):
+def parse_predictions(end_points, config_dict, verbose: bool = False):
     """ Parse predictions to OBB parameters and suppress overlapping boxes
     
     Args:
@@ -51,6 +51,7 @@ def parse_predictions(end_points, config_dict):
         config_dict: dict
             {dataset_config, remove_empty_box, use_3d_nms, nms_iou,
             use_old_type_nms, conf_thresh, per_class_proposal}
+        verbose: bool, print debug messages or not.
 
     Returns:
         batch_pred_map_cls: a list of len == batch size (BS)
@@ -58,33 +59,41 @@ def parse_predictions(end_points, config_dict):
             where pred_list_i = [(pred_sem_cls, box_params, box_score)_j]
             where j = 0, ..., num of valid detections - 1 from sample input i
     """
-    pred_center = end_points['center'] # B,num_proposal,3
-    pred_heading_class = torch.argmax(end_points['heading_scores'], -1) # B,num_proposal
+    print("\n========== Start: parse_predictions Function ====================")
+    pred_center = end_points['center'] # [B,num_proposal,3]
+    # return the max value idx across the last dimension. heading_scores: [1, num_proposal, 12]
+    pred_heading_class = torch.argmax(end_points['heading_scores'], -1) # [B,num_proposal]
+    # get heading angle residuals according to the max heading class
     pred_heading_residual = torch.gather(end_points['heading_residuals'], 2,
-        pred_heading_class.unsqueeze(-1)) # B,num_proposal,1
-    pred_heading_residual.squeeze_(2)
-    pred_size_class = torch.argmax(end_points['size_scores'], -1) # B,num_proposal
-    pred_size_residual = torch.gather(end_points['size_residuals'], 2,
-        pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3)) # B,num_proposal,1,3
-    pred_size_residual.squeeze_(2)
-    pred_sem_cls = torch.argmax(end_points['sem_cls_scores'], -1) # B,num_proposal
-    sem_cls_probs = softmax(end_points['sem_cls_scores'].detach().cpu().numpy()) # B,num_proposal,10
-    pred_sem_cls_prob = np.max(sem_cls_probs,-1) # B,num_proposal
+        pred_heading_class.unsqueeze(-1)) # [B,num_proposal,1]
+    pred_heading_residual.squeeze_(2) # [B, num_proposal]
+    # size_scores: [1, 256, 5]
+    pred_size_class = torch.argmax(end_points['size_scores'], -1) # [B,num_proposal]
+    # size_residual: [1, 256, 5, 3]
+    pred_size_residual = torch.gather(
+        end_points['size_residuals'], 
+        2,
+        pred_size_class.unsqueeze(-1).unsqueeze(-1).repeat(1,1,1,3)
+        ) # [B,num_proposal,1,3]
+    pred_size_residual.squeeze_(2) # [B, num_proposal,3]
+    pred_sem_cls = torch.argmax(end_points['sem_cls_scores'], -1) # [B,num_proposal]
+    sem_cls_probs = softmax(end_points['sem_cls_scores'].detach().cpu().numpy()) # [B,num_proposal,5]
+    pred_sem_cls_prob = np.max(sem_cls_probs,-1) # [B,num_proposal]
 
     num_proposal = pred_center.shape[1] 
     # Since we operate in upright_depth coord for points, while util functions
     # assume upright_camera coord.
     bsize = pred_center.shape[0]
-    pred_corners_3d_upright_camera = np.zeros((bsize, num_proposal, 8, 3))
-    pred_center_upright_camera = flip_axis_to_camera(pred_center.detach().cpu().numpy())
+    pred_corners_3d = np.zeros((bsize, num_proposal, 8, 3))
+    pred_center = pred_center.detach().cpu().numpy()
     for i in range(bsize):
         for j in range(num_proposal):
             heading_angle = config_dict['dataset_config'].class2angle(\
                 pred_heading_class[i,j].detach().cpu().numpy(), pred_heading_residual[i,j].detach().cpu().numpy())
             box_size = config_dict['dataset_config'].class2size(\
                 int(pred_size_class[i,j].detach().cpu().numpy()), pred_size_residual[i,j].detach().cpu().numpy())
-            corners_3d_upright_camera = get_3d_box(box_size, heading_angle, pred_center_upright_camera[i,j,:])
-            pred_corners_3d_upright_camera[i,j] = corners_3d_upright_camera
+            corners_3d = get_3d_box(box_size, heading_angle, pred_center[i,j,:])
+            pred_corners_3d[i,j] = corners_3d
 
     K = pred_center.shape[1] # K==num_proposal
     nonempty_box_mask = np.ones((bsize, K))
@@ -92,29 +101,29 @@ def parse_predictions(end_points, config_dict):
     if config_dict['remove_empty_box']:
         # -------------------------------------
         # Remove predicted boxes without any point within them..
-        batch_pc = end_points['point_clouds'].cpu().numpy()[:,:,0:3] # B,N,3
+        batch_pc = end_points['point_clouds'].cpu().numpy()[:,:,0:3] # [B,N,3]
         for i in range(bsize):
-            pc = batch_pc[i,:,:] # (N,3)
+            pc = batch_pc[i,:,:] # [N,3]
             for j in range(K):
-                box3d = pred_corners_3d_upright_camera[i,j,:,:] # (8,3)
-                box3d = flip_axis_to_depth(box3d)
+                box3d = pred_corners_3d[i,j,:,:] # (8,3)
+                # box3d = flip_axis_to_depth(box3d)
                 pc_in_box,inds = extract_pc_in_box3d(pc, box3d)
-                if len(pc_in_box) < 5:
+                if len(pc_in_box) < 1: #chagned from 5 to 1, due to sparse nature of waymo data
                     nonempty_box_mask[i,j] = 0
         # -------------------------------------
 
-    obj_logits = end_points['objectness_scores'].detach().cpu().numpy()
-    obj_prob = softmax(obj_logits)[:,:,1] # (B,K)
+    obj_logits = end_points['objectness_scores'].detach().cpu().numpy() # [1, 256, 2]
+    obj_prob = softmax(obj_logits)[:,:,1] # [B,K]
     if not config_dict['use_3d_nms']:
         # ---------- NMS input: pred_with_prob in (B,K,7) -----------
         pred_mask = np.zeros((bsize, K))
         for i in range(bsize):
             boxes_2d_with_prob = np.zeros((K,5))
             for j in range(K):
-                boxes_2d_with_prob[j,0] = np.min(pred_corners_3d_upright_camera[i,j,:,0])
-                boxes_2d_with_prob[j,2] = np.max(pred_corners_3d_upright_camera[i,j,:,0])
-                boxes_2d_with_prob[j,1] = np.min(pred_corners_3d_upright_camera[i,j,:,2])
-                boxes_2d_with_prob[j,3] = np.max(pred_corners_3d_upright_camera[i,j,:,2])
+                boxes_2d_with_prob[j,0] = np.min(pred_corners_3d[i,j,:,0])
+                boxes_2d_with_prob[j,2] = np.max(pred_corners_3d[i,j,:,0])
+                boxes_2d_with_prob[j,1] = np.min(pred_corners_3d[i,j,:,2])
+                boxes_2d_with_prob[j,3] = np.max(pred_corners_3d[i,j,:,2])
                 boxes_2d_with_prob[j,4] = obj_prob[i,j]
             nonempty_box_inds = np.where(nonempty_box_mask[i,:]==1)[0]
             pick = nms_2d_faster(boxes_2d_with_prob[nonempty_box_mask[i,:]==1,:],
@@ -129,12 +138,12 @@ def parse_predictions(end_points, config_dict):
         for i in range(bsize):
             boxes_3d_with_prob = np.zeros((K,7))
             for j in range(K):
-                boxes_3d_with_prob[j,0] = np.min(pred_corners_3d_upright_camera[i,j,:,0])
-                boxes_3d_with_prob[j,1] = np.min(pred_corners_3d_upright_camera[i,j,:,1])
-                boxes_3d_with_prob[j,2] = np.min(pred_corners_3d_upright_camera[i,j,:,2])
-                boxes_3d_with_prob[j,3] = np.max(pred_corners_3d_upright_camera[i,j,:,0])
-                boxes_3d_with_prob[j,4] = np.max(pred_corners_3d_upright_camera[i,j,:,1])
-                boxes_3d_with_prob[j,5] = np.max(pred_corners_3d_upright_camera[i,j,:,2])
+                boxes_3d_with_prob[j,0] = np.min(pred_corners_3d[i,j,:,0])
+                boxes_3d_with_prob[j,1] = np.min(pred_corners_3d[i,j,:,1])
+                boxes_3d_with_prob[j,2] = np.min(pred_corners_3d[i,j,:,2])
+                boxes_3d_with_prob[j,3] = np.max(pred_corners_3d[i,j,:,0])
+                boxes_3d_with_prob[j,4] = np.max(pred_corners_3d[i,j,:,1])
+                boxes_3d_with_prob[j,5] = np.max(pred_corners_3d[i,j,:,2])
                 boxes_3d_with_prob[j,6] = obj_prob[i,j]
             nonempty_box_inds = np.where(nonempty_box_mask[i,:]==1)[0]
             pick = nms_3d_faster(boxes_3d_with_prob[nonempty_box_mask[i,:]==1,:],
@@ -149,12 +158,12 @@ def parse_predictions(end_points, config_dict):
         for i in range(bsize):
             boxes_3d_with_prob = np.zeros((K,8))
             for j in range(K):
-                boxes_3d_with_prob[j,0] = np.min(pred_corners_3d_upright_camera[i,j,:,0])
-                boxes_3d_with_prob[j,1] = np.min(pred_corners_3d_upright_camera[i,j,:,1])
-                boxes_3d_with_prob[j,2] = np.min(pred_corners_3d_upright_camera[i,j,:,2])
-                boxes_3d_with_prob[j,3] = np.max(pred_corners_3d_upright_camera[i,j,:,0])
-                boxes_3d_with_prob[j,4] = np.max(pred_corners_3d_upright_camera[i,j,:,1])
-                boxes_3d_with_prob[j,5] = np.max(pred_corners_3d_upright_camera[i,j,:,2])
+                boxes_3d_with_prob[j,0] = np.min(pred_corners_3d[i,j,:,0])
+                boxes_3d_with_prob[j,1] = np.min(pred_corners_3d[i,j,:,1])
+                boxes_3d_with_prob[j,2] = np.min(pred_corners_3d[i,j,:,2])
+                boxes_3d_with_prob[j,3] = np.max(pred_corners_3d[i,j,:,0])
+                boxes_3d_with_prob[j,4] = np.max(pred_corners_3d[i,j,:,1])
+                boxes_3d_with_prob[j,5] = np.max(pred_corners_3d[i,j,:,2])
                 boxes_3d_with_prob[j,6] = obj_prob[i,j]
                 boxes_3d_with_prob[j,7] = pred_sem_cls[i,j] # only suppress if the two boxes are of the same class!!
             nonempty_box_inds = np.where(nonempty_box_mask[i,:]==1)[0]
@@ -170,13 +179,15 @@ def parse_predictions(end_points, config_dict):
         if config_dict['per_class_proposal']:
             cur_list = []
             for ii in range(config_dict['dataset_config'].num_class):
-                cur_list += [(ii, pred_corners_3d_upright_camera[i,j], sem_cls_probs[i,j,ii]*obj_prob[i,j]) \
+                cur_list += [(ii, pred_corners_3d[i,j], sem_cls_probs[i,j,ii]*obj_prob[i,j]) \
                     for j in range(pred_center.shape[1]) if pred_mask[i,j]==1 and obj_prob[i,j]>config_dict['conf_thresh']]
             batch_pred_map_cls.append(cur_list)
         else:
-            batch_pred_map_cls.append([(pred_sem_cls[i,j].item(), pred_corners_3d_upright_camera[i,j], obj_prob[i,j]) \
+            batch_pred_map_cls.append([(pred_sem_cls[i,j].item(), pred_corners_3d[i,j], obj_prob[i,j]) \
                 for j in range(pred_center.shape[1]) if pred_mask[i,j]==1 and obj_prob[i,j]>config_dict['conf_thresh']])
     end_points['batch_pred_map_cls'] = batch_pred_map_cls
+
+    print("\n========== End: parse_predictions Function ====================")
 
     return batch_pred_map_cls
 
@@ -197,6 +208,7 @@ def parse_groundtruths(end_points, config_dict): # TODO: compare the result with
             where gt_list_i = [(gt_sem_cls, gt_box_params)_j]
             where j = 0, ..., num of objects - 1 at sample input i
     """
+    print("\n========== Start: parse_groundtruths Function ====================")
     center_label = end_points['center_label']
     heading_class_label = end_points['heading_class_label']
     heading_residual_label = end_points['heading_residual_label']
@@ -231,6 +243,8 @@ def parse_groundtruths(end_points, config_dict): # TODO: compare the result with
     for i in range(bsize):
         batch_gt_map_cls.append([(sem_cls_label[i,j].item(), gt_corners_3d[i,j]) for j in range(gt_corners_3d.shape[1]) if box_label_mask[i,j]==1])
     end_points['batch_gt_map_cls'] = batch_gt_map_cls
+
+    print("\n========== End: parse_groundtruths Function ====================")
 
     return batch_gt_map_cls
 

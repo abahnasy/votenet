@@ -365,9 +365,8 @@ def evaluate_overfit_run():
                 if key not in stat_dict: stat_dict[key] = 0
                 stat_dict[key] += end_points[key].item()
 
-        # batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
+        batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT)
-        print(len(batch_gt_map_cls[0]))
         # ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
 
         # Dump evaluation results for visualization
