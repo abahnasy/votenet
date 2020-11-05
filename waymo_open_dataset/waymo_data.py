@@ -308,6 +308,7 @@ if __name__=='__main__':
     parser.add_argument('--viz', action='store_true', help='Run data visualization.')
     parser.add_argument('--compute_median_size', action='store_true', help='Compute median 3D bounding box sizes for each class.')
     parser.add_argument('--extract_votes', action='store_true')
+    parser.add_argument('--num_point', type=int, default=60000, help='Point Number [default: 60000]')
     args = parser.parse_args()
 
     print("check reachable point")
@@ -328,7 +329,7 @@ if __name__=='__main__':
         split = 'training', 
         output_folder= os.path.join(BASE_DIR, 'dataset', 'training', 'votes'),
         save_votes = True,
-        num_point = 60000,
+        num_point = args.num_point,
         verbose = args.verbose
         )
         exit()
