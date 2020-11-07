@@ -16,7 +16,7 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
-from backbone_module import Pointnet2Backbone
+from backbone_module import Pointnet2Backbone, Pointnet2Backbone_MSG
 from voting_module import VotingModule
 from proposal_module import ProposalModule
 from dump_helper import dump_results
@@ -57,7 +57,7 @@ class VoteNet(nn.Module):
         self.sampling=sampling
 
         # Backbone point feature learning
-        self.backbone_net = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
+        self.backbone_net = Pointnet2Backbone_MSG(input_feature_dim=self.input_feature_dim)
 
         # Hough voting
         self.vgen = VotingModule(self.vote_factor, 256)

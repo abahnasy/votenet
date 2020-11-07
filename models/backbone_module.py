@@ -154,9 +154,9 @@ class Pointnet2Backbone_MSG(nn.Module):
         super().__init__()
 
         self.sa1 = PointnetSAModuleMSGVotes(
-                npoint=2048,
+                npoint=4096,
                 radii=[0.1, 0.5],
-                nsamples=[32, 64],
+                nsamples=[16, 32],
                 mlps=[[input_feature_dim, 16, 16, 32], [input_feature_dim, 32, 32, 64]],
                 use_xyz=True
             )
@@ -165,7 +165,7 @@ class Pointnet2Backbone_MSG(nn.Module):
                 npoint=1024,
                 radii=[0.5, 1.0],
                 nsamples=[128, 128],
-                mlps=[[96, 64, 64, 128], [96, 64, 96, 128]],
+                mlps=[[64, 64, 128], [64, 96, 128]],
                 use_xyz=True
             )
 
@@ -173,15 +173,15 @@ class Pointnet2Backbone_MSG(nn.Module):
                 npoint=512,
                 radii=[1.0, 2.0],
                 nsamples=[256, 256],
-                mlps=[[256, 128, 196, 256], [256, 128, 196, 256]], 
+                mlps=[[128, 196, 256], [128, 196, 256]], 
                 use_xyz=True
             )
 
         self.sa4 = PointnetSAModuleMSGVotes(
-                npoint=256,
+                npoint=64,
                 radii=[2.0, 4.0],
                 nsamples=[512, 512],
-                mlps=[[512, 256, 256, 512], [512, 256, 384, 512]],
+                mlps=[[256, 256, 512], [256, 384, 512]],
                 use_xyz=True
             )
 
@@ -219,34 +219,46 @@ class Pointnet2Backbone_MSG(nn.Module):
         if not end_points: end_points = {}
         batch_size = pointcloud.shape[0]
 
+        print("Cuda allocation", torch.cuda.memory_allocated(0))
         xyz, features = self._break_up_pc(pointcloud)
+        print("+++++ Forward function for the backbone ++++++++")
+        print("input dimenstions for xyz after breakup functions are {} and for features are {}".format(xyz.shape, features.shape))
 
         # --------- 4 SET ABSTRACTION LAYERS ---------
         xyz, features, fps_inds = self.sa1(xyz, features)
+        print("input dimenstions for xyz after sa1 are {} and for features are {}".format(xyz.shape, features.shape))
         end_points['sa1_inds'] = fps_inds
         end_points['sa1_xyz'] = xyz
         end_points['sa1_features'] = features
-
+        print("Cuda allocation", torch.cuda.memory_allocated(0))
         xyz, features, fps_inds = self.sa2(xyz, features) # this fps_inds is just 0,1,...,1023
+        print("input dimenstions for xyz after sa2 are {} and for features are {}".format(xyz.shape, features.shape))
         end_points['sa2_inds'] = fps_inds
         end_points['sa2_xyz'] = xyz
         end_points['sa2_features'] = features
 
+        print("Cuda allocation", torch.cuda.memory_allocated(0))
         xyz, features, fps_inds = self.sa3(xyz, features) # this fps_inds is just 0,1,...,511
+        print("input dimenstions for xyz after sa3 are {} and for features are {}".format(xyz.shape, features.shape))
         end_points['sa3_xyz'] = xyz
         end_points['sa3_features'] = features
 
+        print("Cuda allocation", torch.cuda.memory_allocated(0))
         xyz, features, fps_inds = self.sa4(xyz, features) # this fps_inds is just 0,1,...,255
+        print("input dimenstions for xyz after sa4 are {} and for features are {}".format(xyz.shape, features.shape))
         end_points['sa4_xyz'] = xyz
         end_points['sa4_features'] = features
 
         # --------- 2 FEATURE UPSAMPLING LAYERS --------
+
         features = self.fp1(end_points['sa3_xyz'], end_points['sa4_xyz'], end_points['sa3_features'], end_points['sa4_features'])
         features = self.fp2(end_points['sa2_xyz'], end_points['sa3_xyz'], end_points['sa2_features'], features)
         end_points['fp2_features'] = features
         end_points['fp2_xyz'] = end_points['sa2_xyz']
         num_seed = end_points['fp2_xyz'].shape[1]
         end_points['fp2_inds'] = end_points['sa1_inds'][:,0:num_seed] # indices among the entire input point clouds
+        
+        print("------ End of Forward function for the backbone ------")
         return end_points
 
 
@@ -260,10 +272,10 @@ if __name__=='__main__':
 
     # test Multi-Scale backbone 
     # print(torch.cuda.memory_allocated(0))
-    backbone_net = Pointnet2Backbone_MSG(input_feature_dim=3).cuda()
+    backbone_net = Pointnet2Backbone_MSG(input_feature_dim=1).cuda()
     print(torch.cuda.memory_allocated(0))
-    print(backbone_net)
+    # print(backbone_net)
     backbone_net.eval()
-    out = backbone_net(torch.rand(16,1000,6).cuda())
+    out = backbone_net(torch.rand(1,60000,4).cuda())
     for key in sorted(out.keys()):
         print(key, '\t', out[key].shape)

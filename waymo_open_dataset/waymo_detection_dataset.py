@@ -43,7 +43,7 @@ class WaymoDetectionVotesDataset(Dataset):
         use_height=False,
         augment=False):
 
-        assert(num_points<=60000)
+        # assert(num_points<=60000)
         self.split_set = split_set
         self.data_path = os.path.join(BASE_DIR,
                 'dataset') # TODO: rename to votes data path
