@@ -154,9 +154,9 @@ class Pointnet2Backbone_MSG(nn.Module):
         super().__init__()
 
         self.sa1 = PointnetSAModuleMSGVotes(
-                npoint=4096,
+                npoint=2048,
                 radii=[0.1, 0.5],
-                nsamples=[16, 32],
+                nsamples=[64, 64],
                 mlps=[[input_feature_dim, 16, 16, 32], [input_feature_dim, 32, 32, 64]],
                 use_xyz=True
             )
@@ -164,29 +164,29 @@ class Pointnet2Backbone_MSG(nn.Module):
         self.sa2 = PointnetSAModuleMSGVotes(
                 npoint=1024,
                 radii=[0.5, 1.0],
-                nsamples=[128, 128],
-                mlps=[[64, 64, 128], [64, 96, 128]],
+                nsamples=[32, 32],
+                mlps=[[96, 64, 64, 128], [96, 64, 96, 128]],
                 use_xyz=True
             )
 
         self.sa3 = PointnetSAModuleMSGVotes(
                 npoint=512,
                 radii=[1.0, 2.0],
-                nsamples=[256, 256],
-                mlps=[[128, 196, 256], [128, 196, 256]], 
+                nsamples=[16, 16],
+                mlps=[[256, 128, 196, 256], [256, 128, 196, 256]], 
                 use_xyz=True
             )
 
         self.sa4 = PointnetSAModuleMSGVotes(
-                npoint=64,
+                npoint=256,
                 radii=[2.0, 4.0],
-                nsamples=[512, 512],
-                mlps=[[256, 256, 512], [256, 384, 512]],
+                nsamples=[16, 16],
+                mlps=[[512, 256, 256, 512], [512, 256, 384, 512]],
                 use_xyz=True
             )
 
-        self.fp1 = PointnetFPModule(mlp=[256+256,512])
-        self.fp2 = PointnetFPModule(mlp=[256+256,512])
+        self.fp1 = PointnetFPModule(mlp=[1024+512, 512, 512])
+        self.fp2 = PointnetFPModule(mlp=[512+256, 1024, 1024])
 
     def _break_up_pc(self, pc):
         xyz = pc[..., 0:3].contiguous()
@@ -219,7 +219,7 @@ class Pointnet2Backbone_MSG(nn.Module):
         if not end_points: end_points = {}
         batch_size = pointcloud.shape[0]
 
-        print("Cuda allocation", torch.cuda.memory_allocated(0))
+        print("Cuda allocation before running SA modules", torch.cuda.memory_allocated(0))
         xyz, features = self._break_up_pc(pointcloud)
         print("+++++ Forward function for the backbone ++++++++")
         print("input dimenstions for xyz after breakup functions are {} and for features are {}".format(xyz.shape, features.shape))
@@ -230,7 +230,7 @@ class Pointnet2Backbone_MSG(nn.Module):
         end_points['sa1_inds'] = fps_inds
         end_points['sa1_xyz'] = xyz
         end_points['sa1_features'] = features
-        print("Cuda allocation", torch.cuda.memory_allocated(0))
+        print("Cuda allocation after SA 1", torch.cuda.memory_allocated(0))
         xyz, features, fps_inds = self.sa2(xyz, features) # this fps_inds is just 0,1,...,1023
         print("input dimenstions for xyz after sa2 are {} and for features are {}".format(xyz.shape, features.shape))
         end_points['sa2_inds'] = fps_inds

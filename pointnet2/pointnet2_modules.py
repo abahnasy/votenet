@@ -61,6 +61,7 @@ class _PointnetSAModuleBase(nn.Module):
             new_features = self.groupers[i](
                 xyz, new_xyz, features
             )  # (B, C, npoint, nsample)
+            print("dimensions for new_features is {}".format(new_features.shape))
 
             new_features = self.mlps[i](
                 new_features
@@ -514,12 +515,15 @@ if __name__ == "__main__":
     from torch.autograd import Variable
     torch.manual_seed(1)
     torch.cuda.manual_seed_all(1)
-    xyz = Variable(torch.randn(2, 9, 3).cuda(), requires_grad=True)
-    xyz_feats = Variable(torch.randn(2, 9, 6).cuda(), requires_grad=True)
+    xyz = Variable(torch.randn(1, 9, 3).cuda(), requires_grad=True)
+    xyz_feats = Variable(torch.randn(1, 1, 9).cuda(), requires_grad=True) # dimensions: B,C,N
 
     test_module = PointnetSAModuleMSG(
-        npoint=2, radii=[5.0, 10.0], nsamples=[6, 3], mlps=[[9, 3], [9, 6]]
+        npoint=2, radii=[5.0, 10.0], nsamples=[6, 3], mlps=[[1, 3], [1, 6]]
+        # npoint=2, radii=[5.0], nsamples=[6], mlps=[[1, 3]]
     )
+    print("Debug mlps")
+    print(test_module.mlps)
     test_module.cuda()
     print(test_module(xyz, xyz_feats))
 
