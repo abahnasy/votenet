@@ -40,7 +40,8 @@ class Pointnet2Backbone(nn.Module):
                 nsample=64,
                 mlp=[input_feature_dim, 64, 64, 128],
                 use_xyz=True,
-                normalize_xyz=True
+                normalize_xyz=True,
+                bn=False
             )
 
         self.sa2 = PointnetSAModuleVotes(
@@ -49,7 +50,8 @@ class Pointnet2Backbone(nn.Module):
                 nsample=32,
                 mlp=[128, 128, 128, 256],
                 use_xyz=True,
-                normalize_xyz=True
+                normalize_xyz=True,
+                bn=False
             )
 
         self.sa3 = PointnetSAModuleVotes(
@@ -58,7 +60,8 @@ class Pointnet2Backbone(nn.Module):
                 nsample=16,
                 mlp=[256, 128, 128, 256],
                 use_xyz=True,
-                normalize_xyz=True
+                normalize_xyz=True,
+                bn=False
             )
 
         self.sa4 = PointnetSAModuleVotes(
@@ -67,7 +70,8 @@ class Pointnet2Backbone(nn.Module):
                 nsample=16,
                 mlp=[256, 128, 128, 256],
                 use_xyz=True,
-                normalize_xyz=True
+                normalize_xyz=True,
+                bn=False
             )
 
         self.fp1 = PointnetFPModule(mlp=[256+256,256,256])
@@ -154,7 +158,7 @@ class Pointnet2Backbone_MSG(nn.Module):
         super().__init__()
 
         self.sa1 = PointnetSAModuleMSGVotes(
-                npoint=2048,
+                npoint=4096,
                 radii=[0.1, 0.5],
                 nsamples=[64, 64],
                 mlps=[[input_feature_dim, 16, 16, 32], [input_feature_dim, 32, 32, 64]],
@@ -186,7 +190,7 @@ class Pointnet2Backbone_MSG(nn.Module):
             )
 
         self.fp1 = PointnetFPModule(mlp=[1024+512, 512, 512])
-        self.fp2 = PointnetFPModule(mlp=[512+256, 1024, 1024])
+        self.fp2 = PointnetFPModule(mlp=[512+256, 512, 512])
 
     def _break_up_pc(self, pc):
         xyz = pc[..., 0:3].contiguous()

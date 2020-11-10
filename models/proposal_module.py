@@ -45,7 +45,7 @@ def decode_scores(net, end_points, num_class, num_heading_bin, num_size_cluster,
 
 
 class ProposalModule(nn.Module):
-    def __init__(self, num_class, num_heading_bin, num_size_cluster, mean_size_arr, num_proposal, sampling, seed_feat_dim=256):
+    def __init__(self, num_class, num_heading_bin, num_size_cluster, mean_size_arr, num_proposal, sampling, seed_feat_dim=512):
         super().__init__() 
 
         self.num_class = num_class
@@ -59,7 +59,7 @@ class ProposalModule(nn.Module):
         # Vote clustering
         self.vote_aggregation = PointnetSAModuleVotes( 
                 npoint=self.num_proposal,
-                radius=0.3,
+                radius=0.7,
                 nsample=16,
                 mlp=[self.seed_feat_dim, 128, 128, 128],
                 use_xyz=True,

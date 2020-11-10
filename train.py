@@ -41,12 +41,12 @@ from ap_helper import APCalculator, parse_predictions, parse_groundtruths
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--model', default='votenet', help='Model file name [default: votenet]')
-parser.add_argument('--dataset', default='sunrgbd', help='Dataset name. sunrgbd or scannet. [default: sunrgbd]')
+parser.add_argument('--dataset', default='waymo', help='Dataset name. [default: waymo]')
 parser.add_argument('--checkpoint_path', default=None, help='Model checkpoint path [default: None]')
 parser.add_argument('--log_dir', default='log', help='Dump dir to save model checkpoint [default: log]')
 parser.add_argument('--dump_dir', default=None, help='Dump dir to save sample outputs [default: None]')
-parser.add_argument('--num_point', type=int, default=20000, help='Point Number [default: 20000]')
-parser.add_argument('--num_target', type=int, default=256, help='Proposal number [default: 256]')
+parser.add_argument('--num_point', type=int, default=60000, help='Point Number [default: 60000]')
+parser.add_argument('--num_target', type=int, default=128, help='Proposal number [default: 128]')
 parser.add_argument('--vote_factor', type=int, default=1, help='Vote factor [default: 1]')
 parser.add_argument('--cluster_sampling', default='vote_fps', help='Sampling strategy for vote clusters: vote_fps, seed_fps, random [default: vote_fps]')
 parser.add_argument('--ap_iou_thresh', type=float, default=0.25, help='AP IoU threshold [default: 0.25]')
@@ -59,8 +59,6 @@ parser.add_argument('--bn_decay_rate', type=float, default=0.5, help='Decay rate
 parser.add_argument('--lr_decay_steps', default='80,120,160', help='When to decay the learning rate (in epochs) [default: 80,120,160]')
 parser.add_argument('--lr_decay_rates', default='0.1,0.1,0.1', help='Decay rates for lr decay [default: 0.1,0.1,0.1]')
 parser.add_argument('--no_height', action='store_true', help='Do NOT use height signal in input.')
-parser.add_argument('--use_color', action='store_true', help='Use RGB color in input.')
-parser.add_argument('--use_sunrgbd_v2', action='store_true', help='Use V2 box labels for SUN RGB-D dataset')
 parser.add_argument('--overwrite', action='store_true', help='Overwrite existing log and dump folders.')
 parser.add_argument('--dump_results', action='store_true', help='Dump results.')
 parser.add_argument('--verbose', action='store_true', help='Print debugging messages')
@@ -117,34 +115,10 @@ if FLAGS.dataset == 'waymo':
     from model_util_waymo import WaymoDatasetConfig
     DATASET_CONFIG = WaymoDatasetConfig()
     TRAIN_DATASET = WaymoDetectionVotesDataset('training', num_points=NUM_POINT,
-        use_height = True, augment=False)
+        use_height = (not FLAGS.no_height), augment=False)
     # TEST_DATASET = WaymoDetectionVotesDataset('val', num_points=NUM_POINT,
-        # augment=False)
+        # use_height = (not FLAGS.no_height), augment=False)
 
-elif FLAGS.dataset == 'sunrgbd':
-    sys.path.append(os.path.join(ROOT_DIR, 'sunrgbd'))
-    from sunrgbd_detection_dataset import SunrgbdDetectionVotesDataset, MAX_NUM_OBJ
-    from model_util_sunrgbd import SunrgbdDatasetConfig
-    DATASET_CONFIG = SunrgbdDatasetConfig()
-    TRAIN_DATASET = SunrgbdDetectionVotesDataset('train', num_points=NUM_POINT,
-        augment=True,
-        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height),
-        use_v1=(not FLAGS.use_sunrgbd_v2))
-    TEST_DATASET = SunrgbdDetectionVotesDataset('val', num_points=NUM_POINT,
-        augment=False,
-        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height),
-        use_v1=(not FLAGS.use_sunrgbd_v2))
-elif FLAGS.dataset == 'scannet':
-    sys.path.append(os.path.join(ROOT_DIR, 'scannet'))
-    from scannet_detection_dataset import ScannetDetectionDataset, MAX_NUM_OBJ
-    from model_util_scannet import ScannetDatasetConfig
-    DATASET_CONFIG = ScannetDatasetConfig()
-    TRAIN_DATASET = ScannetDetectionDataset('train', num_points=NUM_POINT,
-        augment=True,
-        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
-    TEST_DATASET = ScannetDetectionDataset('val', num_points=NUM_POINT,
-        augment=False,
-        use_color=FLAGS.use_color, use_height=(not FLAGS.no_height))
 else:
     print('Unknown dataset %s. Exiting...'%(FLAGS.dataset))
     exit(-1)
@@ -160,7 +134,7 @@ print(len(TRAIN_DATALOADER))
 # Init the model and optimzier
 MODEL = importlib.import_module(FLAGS.model) # import network module
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-num_input_channel = int(FLAGS.use_color)*3 + int(not FLAGS.no_height)*1
+num_input_channel = int(not FLAGS.no_height)*1
 
 if FLAGS.model == 'boxnet':
     Detector = MODEL.BoxNet
@@ -242,12 +216,15 @@ def train_one_epoch():
             # if FLAGS.verbose: print("key: {}, dimensions: {}".format(key, batch_data_label[key].shape))
             batch_data_label[key] = batch_data_label[key].to(device)
         # print("\nGPU Memory usage after adding the inputs from data loader is {}".format(torch.cuda.memory_allocated(0)))
+        
 
         # Forward pass
         optimizer.zero_grad()
         inputs = {'point_clouds': batch_data_label['point_clouds']}
         # if FLAGS.verbose: print("\n setting inputs dictionary with point clouds and feed it to the model, point cloud dimensions are {}".format(inputs['point_clouds'].shape))
         end_points = net(inputs)
+
+
         # if FLAGS.verbose:
             # print("contents of the end_points dictionary (return of the model) are ")
             # for key, label in end_points.items():
@@ -272,6 +249,27 @@ def train_one_epoch():
                 if key not in stat_dict: stat_dict[key] = 0
                 stat_dict[key] += end_points[key].item()
 
+        
+        # ==== Temp implementation for visual Debugging === #
+        # batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
+        # batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
+        # # Extract prediction for visialization
+        # import pickle 
+        # with open("./visualizations", 'wb') as fp:
+        #     dictie = {}
+        #     dictie['point_cloud'] = batch_data_label['point_clouds'].detach().cpu().numpy()
+        #     dictie['sa1_xyz'] = end_points['sa1_xyz'].detach().cpu().numpy()
+        #     dictie['sa2_xyz'] = end_points['sa2_xyz'].detach().cpu().numpy()
+        #     dictie['sa3_xyz'] = end_points['sa3_xyz'].detach().cpu().numpy()
+        #     dictie['sa4_xyz'] = end_points['sa4_xyz'].detach().cpu().numpy()
+        #     dictie['parsed_gt'] = batch_gt_map_cls
+        #     dictie['parsed_predictions'] = batch_pred_map_cls
+        #     pickle.dump(dictie, fp)
+        
+        # ==== Temp implementation === #
+        
+        
+        
         batch_interval = 1
         if (batch_idx+1) % batch_interval == 0:
             log_string(' ---- batch: %03d ----' % (batch_idx+1))
@@ -418,8 +416,8 @@ def train(start_epoch):
         # REF: https://github.com/pytorch/pytorch/issues/5059
         np.random.seed()
         train_one_epoch()
-        if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9: # Eval every 10 epochs
-            evaluate_overfit_run()
+        # if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9: # Eval every 10 epochs
+            # evaluate_overfit_run()
         #     loss = evaluate_one_epoch()
         # # Save checkpoint
         # save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
