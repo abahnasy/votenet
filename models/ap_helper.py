@@ -16,8 +16,8 @@ from eval_det import eval_det_cls, eval_det_multiprocessing
 from eval_det import get_iou_obb
 from nms import nms_2d_faster, nms_3d_faster, nms_3d_faster_samecls
 from box_util import get_3d_box
-sys.path.append(os.path.join(ROOT_DIR, 'sunrgbd'))
-from sunrgbd_utils import extract_pc_in_box3d
+sys.path.append(os.path.join(ROOT_DIR, 'waymo_open_dataset'))
+from waymo_utils import extract_pc_in_box3d
 
 def flip_axis_to_camera(pc):
     ''' Flip X-right,Y-forward,Z-up to X-right,Y-down,Z-forward
@@ -59,7 +59,7 @@ def parse_predictions(end_points, config_dict, verbose: bool = False):
             where pred_list_i = [(pred_sem_cls, box_params, box_score)_j]
             where j = 0, ..., num of valid detections - 1 from sample input i
     """
-    print("\n========== Start: parse_predictions Function ====================")
+    # print("\n========== Start: parse_predictions Function ====================")
     pred_center = end_points['center'] # [B,num_proposal,3]
     # return the max value idx across the last dimension. heading_scores: [1, num_proposal, 12]
     pred_heading_class = torch.argmax(end_points['heading_scores'], -1) # [B,num_proposal]
@@ -192,7 +192,7 @@ def parse_predictions(end_points, config_dict, verbose: bool = False):
                 for j in range(pred_center.shape[1]) if pred_mask[i,j]==1 and obj_prob[i,j]>config_dict['conf_thresh']])
     end_points['batch_pred_map_cls'] = batch_pred_map_cls
 
-    print("\n========== End: parse_predictions Function ====================")
+    # print("\n========== End: parse_predictions Function ====================")
 
     return batch_pred_map_cls
 
@@ -213,7 +213,7 @@ def parse_groundtruths(end_points, config_dict): # TODO: compare the result with
             where gt_list_i = [(gt_sem_cls, gt_box_params)_j]
             where j = 0, ..., num of objects - 1 at sample input i
     """
-    print("\n========== Start: parse_groundtruths Function ====================")
+    # print("\n========== Start: parse_groundtruths Function ====================")
     center_label = end_points['center_label']
     heading_class_label = end_points['heading_class_label']
     heading_residual_label = end_points['heading_residual_label']
@@ -249,7 +249,7 @@ def parse_groundtruths(end_points, config_dict): # TODO: compare the result with
         batch_gt_map_cls.append([(sem_cls_label[i,j].item(), gt_corners_3d[i,j]) for j in range(gt_corners_3d.shape[1]) if box_label_mask[i,j]==1])
     end_points['batch_gt_map_cls'] = batch_gt_map_cls
 
-    print("\n========== End: parse_groundtruths Function ====================")
+    # print("\n========== End: parse_groundtruths Function ====================")
 
     return batch_gt_map_cls
 

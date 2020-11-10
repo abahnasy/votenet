@@ -334,7 +334,7 @@ class PointnetSAModuleMSGVotes(nn.Module):
         if inds is None:
             # if no explicit inds are provided for sampling do furthest point sampling to get the indices
             inds = pointnet2_utils.furthest_point_sample(xyz, self.npoint)
-            print("SAmoduleOperation: size of inds after fps ampling is {}".format(inds.shape))
+            # print("SAmoduleOperation: size of inds after fps ampling is {}".format(inds.shape))
             # collect the coordinates of the indices chosen by sampling
         new_xyz = pointnet2_utils.gather_operation(
             xyz_flipped, inds
@@ -397,11 +397,11 @@ class PointnetFPModule(nn.Module):
             (B, mlp[-1], n) tensor of the features of the unknown features
         """
 
-        print("inside fp1 fofrward function")
-        print("unknown size {}".format(unknown.shape))
-        print("unknown features size {}".format(unknow_feats.shape))
-        print("known size {}".format(known.shape))
-        print("known feats size {}".format(known_feats.shape))
+        # print("inside fp1 fofrward function")
+        # print("unknown size {}".format(unknown.shape))
+        # print("unknown features size {}".format(unknow_feats.shape))
+        # print("known size {}".format(known.shape))
+        # print("known feats size {}".format(known_feats.shape))
         if known is not None:
             dist, idx = pointnet2_utils.three_nn(unknown, known)
             dist_recip = 1.0 / (dist + 1e-8)
@@ -423,8 +423,8 @@ class PointnetFPModule(nn.Module):
             new_features = interpolated_feats
 
         new_features = new_features.unsqueeze(-1)
-        print("interpolated features shape is {}".format(new_features.shape))
-        print(self.mlp)
+        # print("interpolated features shape is {}".format(new_features.shape))
+        # print(self.mlp)
         
         new_features = self.mlp(new_features)
 

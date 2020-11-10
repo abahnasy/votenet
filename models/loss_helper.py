@@ -38,8 +38,8 @@ def compute_vote_loss(end_points):
         Then the loss for this seed point is:
             min(d(v_i,c_j)) for i=1,2,3 and j=1,2,3
     """
-    print("\n========== compute_loss_function section ====================")
-    print(torch.cuda.memory_allocated(0))
+    # print("\n========== compute_loss_function section ====================")
+    # print(torch.cuda.memory_allocated(0))
     # Load ground truth votes and assign them to seed points
     batch_size = end_points['seed_xyz'].shape[0]
     num_seed = end_points['seed_xyz'].shape[1] # B,num_seed,3
@@ -52,9 +52,9 @@ def compute_vote_loss(end_points):
     # vote_label: Use gather to select B,num_seed,9 from B,num_point,9
     #   with inds in shape B,num_seed,9 and 9 = GT_VOTE_FACTOR * 3
     seed_gt_votes_mask = torch.gather(end_points['vote_label_mask'], 1, seed_inds)
-    print("after gather operation, seeg_gt_votes_mask size is {}".format(seed_gt_votes_mask.shape))
+    # print("after gather operation, seeg_gt_votes_mask size is {}".format(seed_gt_votes_mask.shape))
     seed_inds_expand = seed_inds.view(batch_size,num_seed,1).repeat(1,1,3*GT_VOTE_FACTOR)
-    print("after expand operation, seed_inds_expand tensor has size of {}".format(seed_inds_expand.shape))
+    # print("after expand operation, seed_inds_expand tensor has size of {}".format(seed_inds_expand.shape))
     seed_gt_votes = torch.gather(end_points['vote_label'], 1, seed_inds_expand)
     seed_gt_votes += end_points['seed_xyz'].repeat(1,1,3)
 
@@ -66,7 +66,7 @@ def compute_vote_loss(end_points):
     votes_dist, _ = torch.min(dist2, dim=1) # (B*num_seed,vote_factor) to (B*num_seed,)
     votes_dist = votes_dist.view(batch_size, num_seed)
     vote_loss = torch.sum(votes_dist*seed_gt_votes_mask.float())/(torch.sum(seed_gt_votes_mask.float())+1e-6)
-    print("\n========== end of compute_loss_function section ====================")
+    # print("\n========== end of compute_loss_function section ====================")
     return vote_loss
 
 def compute_objectness_loss(end_points):
@@ -82,8 +82,8 @@ def compute_objectness_loss(end_points):
         object_assignment: (batch_size, num_seed) Tensor with long int
             within [0,num_gt_object-1]
     """ 
-    print("\n========== compute_objectness_loss section ====================")
-    print(torch.cuda.memory_allocated(0))
+    # print("\n========== compute_objectness_loss section ====================")
+    # print(torch.cuda.memory_allocated(0))
     # Associate proposal and GT objects by point-to-point distances
     aggregated_vote_xyz = end_points['aggregated_vote_xyz']
     gt_center = end_points['center_label'][:,:,0:3]
@@ -111,7 +111,7 @@ def compute_objectness_loss(end_points):
     # Set assignment
     object_assignment = ind1 # (B,K) with values in 0,1,...,K2-1
 
-    print("\n========== end of compute_objectness_loss section ====================")
+    # print("\n========== end of compute_objectness_loss section ====================")
     return objectness_loss, objectness_label, objectness_mask, object_assignment
 
 def compute_box_and_sem_cls_loss(end_points, config):
@@ -128,8 +128,8 @@ def compute_box_and_sem_cls_loss(end_points, config):
         size_reg_loss
         sem_cls_loss
     """
-    print("\n========== compute_box_and_sem_cls_loss section ====================")
-    print(torch.cuda.memory_allocated(0))
+    # print("\n========== compute_box_and_sem_cls_loss section ====================")
+    # print(torch.cuda.memory_allocated(0))
 
     num_heading_bin = config.num_heading_bin
     num_size_cluster = config.num_size_cluster
@@ -190,7 +190,7 @@ def compute_box_and_sem_cls_loss(end_points, config):
     sem_cls_loss = criterion_sem_cls(end_points['sem_cls_scores'].transpose(2,1), sem_cls_label) # (B,K)
     sem_cls_loss = torch.sum(sem_cls_loss * objectness_label)/(torch.sum(objectness_label)+1e-6)
 
-    print("\n========== end of compute_box_and_sem_cls_loss section ====================")
+    # print("\n========== end of compute_box_and_sem_cls_loss section ====================")
     return center_loss, heading_class_loss, heading_residual_normalized_loss, size_class_loss, size_residual_normalized_loss, sem_cls_loss
 
 def get_loss(end_points, config):

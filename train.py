@@ -117,7 +117,7 @@ if FLAGS.dataset == 'waymo':
     TRAIN_DATASET = WaymoDetectionVotesDataset('training', num_points=NUM_POINT,
         use_height = (not FLAGS.no_height), augment=False)
     # TEST_DATASET = WaymoDetectionVotesDataset('val', num_points=NUM_POINT,
-        # use_height = (not FLAGS.no_height), augment=False)
+    #     use_height = (not FLAGS.no_height), augment=False)
 
 else:
     print('Unknown dataset %s. Exiting...'%(FLAGS.dataset))
@@ -270,8 +270,9 @@ def train_one_epoch():
         
         
         
-        batch_interval = 1
+        batch_interval = 10
         if (batch_idx+1) % batch_interval == 0:
+            print("Logging Visualizations for training")
             log_string(' ---- batch: %03d ----' % (batch_idx+1))
             TRAIN_VISUALIZER.log_scalars({key:stat_dict[key]/batch_interval for key in stat_dict},
                 (EPOCH_CNT*len(TRAIN_DATALOADER)+batch_idx)*BATCH_SIZE)
@@ -371,13 +372,13 @@ def evaluate_overfit_run():
         print("number of predictions: {}".format(len(batch_pred_map_cls[0])))
 
         # Extract prediction for visialization
-        import pickle 
-        with open("./visualizations", 'wb') as fp:
-            dictie = {}
-            dictie['point_cloud'] = batch_data_label['point_clouds'].detach().cpu().numpy()
-            dictie['parsed_gt'] = batch_gt_map_cls
-            dictie['parsed_predictions'] = batch_pred_map_cls
-            pickle.dump(dictie, fp)
+        # import pickle 
+        # with open("./visualizations", 'wb') as fp:
+        #     dictie = {}
+        #     dictie['point_cloud'] = batch_data_label['point_clouds'].detach().cpu().numpy()
+        #     dictie['parsed_gt'] = batch_gt_map_cls
+        #     dictie['parsed_predictions'] = batch_pred_map_cls
+        #     pickle.dump(dictie, fp)
 
         
         
@@ -388,10 +389,10 @@ def evaluate_overfit_run():
             # MODEL.dump_results(end_points, DUMP_DIR, DATASET_CONFIG) 
 
     # Log statistics
-    # TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
-        # (EPOCH_CNT+1)*len(TRAIN_DATALOADER)*BATCH_SIZE)
-    # for key in sorted(stat_dict.keys()):
-        # log_string('eval mean %s: %f'%(key, stat_dict[key]/(float(batch_idx+1))))
+    TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
+        (EPOCH_CNT+1)*len(TRAIN_DATALOADER)*BATCH_SIZE)
+    for key in sorted(stat_dict.keys()):
+        log_string('eval mean %s: %f'%(key, stat_dict[key]/(float(batch_idx+1))))
 
     # Evaluate average precision
     # metrics_dict = ap_calculator.compute_metrics()
@@ -416,9 +417,10 @@ def train(start_epoch):
         # REF: https://github.com/pytorch/pytorch/issues/5059
         np.random.seed()
         train_one_epoch()
-        # if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9: # Eval every 10 epochs
-            # evaluate_overfit_run()
-        #     loss = evaluate_one_epoch()
+        if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9: # Eval every 10 epochs
+            print("Logging Visualizations for validation")
+            loss = evaluate_overfit_run()
+            # loss = evaluate_one_epoch()
         # # Save checkpoint
         # save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
         #             'optimizer_state_dict': optimizer.state_dict(),
