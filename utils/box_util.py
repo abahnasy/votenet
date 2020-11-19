@@ -123,6 +123,39 @@ class Box:
 
         return corners
         
+def get_corners_from_labels_array(label, wlh_factor: float = 1.0) -> np.ndarray:
+    ''' takes 1x8 array contains label information
+    Args:
+        np.array 1x8 contains label information
+    Returns:
+    '''
+    
+    
+    length = label[1] * wlh_factor
+    width = label[2] * wlh_factor
+    height = label[3] * wlh_factor
+    
+    
+    
+    # 3D bounding box corners. (Convention: x points forward, y to the left, z up.)
+    x_corners = length / 2 * np.array([1, 1, 1, 1, -1, -1, -1, -1])
+    y_corners = width / 2 * np.array([1, -1, -1, 1, 1, -1, -1, 1])
+    z_corners = height / 2 * np.array([1, 1, -1, -1, 1, 1, -1, -1])
+    corners = np.vstack((x_corners, y_corners, z_corners))
+    
+    orientation = Quaternion(axis=(0.0, 0.0, 1.0), radians=label[7])
+    
+    # Rotate
+    corners = np.dot(orientation.rotation_matrix, corners)
+    
+    # Translate
+    x, y, z = label[4], label[5], label[6]
+    corners[0, :] = corners[0, :] + x
+    corners[1, :] = corners[1, :] + y
+    corners[2, :] = corners[2, :] + z
+    
+    return corners
+
 def view_points(points: np.ndarray, view: np.ndarray, normalize: bool) -> np.ndarray:
     """This is a helper class that maps 3d points to a 2d plane. It can be used to implement both perspective and
     orthographic projections. It first applies the dot product between the points and the view. By convention,

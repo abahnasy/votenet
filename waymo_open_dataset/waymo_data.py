@@ -20,15 +20,15 @@ import sys
 import numpy as np
 import sys
 import argparse
-
+from pathlib import Path
 import plotly.graph_objects as go
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
-sys.path.append(os.path.join(BASE_DIR, '../utils/'))
+sys.path.append(os.path.join(BASE_DIR, '..', 'utils'))
 import pc_util
 import waymo_utils
-from box_util import view_points
+from box_util import view_points, get_corners_from_labels_array
 
 # Object types 
 DEFAULT_TYPE_WHITELIST = ['TYPE_UNKNOWN','TYPE_VEHICLE','TYPE_PEDESTRIAN','TYPE_SIGN','TYPE_CYCLIST']
@@ -37,47 +37,64 @@ DEFAULT_TYPE_WHITELIST = ['TYPE_UNKNOWN','TYPE_VEHICLE','TYPE_PEDESTRIAN','TYPE_
 
 class waymo_object(object):
     ''' Load and parse object data '''
-    def __init__(self, root_dir, split='training'):
+    def __init__(self, root_dir, split='training', verbose:bool = False):
         self.root_dir = root_dir
         self.split = split
         self.split_dir = os.path.join(BASE_DIR, root_dir, split)
         if not os.path.exists(self.split_dir):
             raise Exception('Make sure to run preprocessing function to prepare the data')
-        # load idx2segment_id dictionary
-        pickle_in = open(os.path.join(self.split_dir, 'idx2segment_id_dict'), 'rb')
-        self.idx2segment_id = pickle.load(pickle_in)
-        print(self.idx2segment_id)
-        pickle_in.close()
+        # load segments_dict_list dictionary
+        segments_dict_list_path = os.path.join(self.split_dir, 'segments_dict_list')
+        if not os.path.exists(segments_dict_list_path):
+            raise ValueError('segments Dictionary list is not found, make sure to preprocess the data first')
+        with open(segments_dict_list_path, 'rb') as f:
+            self.segments_dict_list = pickle.load(f)
+        self.num_segments = len(self.segments_dict_list)
+        if verbose: print("No of segments in the dataset is {}".format(len(self.segments_dict_list)))
+
+
 
         self.type2class = {'TYPE_UNKNOWN':0,'TYPE_VEHICLE':1,'TYPE_PEDESTRIAN':2,'TYPE_SIGN':3,'TYPE_CYCLIST':4}
         self.class2type = {self.type2class[t]:t for t in self.type2class}
         # get the count of the dataset
         if split == 'training':
-            # TODO: set it later to the total number of training segments (or if you are going to use multiple frames from the same segment !)
-            # assumption: we will use only the first frames from each segment to train on detection
-            self.num_samples = len([file for file in os.listdir(os.path.join(root_dir, split)) if file.split('-')[0] == 'segment'])
+            self.num_frames = 0
+            for segment_dict in self.segments_dict_list:
+                # add total number of frames in every segment
+                self.num_frames += segment_dict['frame_count']
             
-        elif split == 'validation':
-            self.num_samples = 150 # total number of validation segments
+        elif split == 'validation': # TODO
+            self.num_frames = 150 # total number of validation segments
 
-        elif split == 'testing':
+        elif split == 'testing': # TODO
             # TODO: change it later when you start to configure the testing
-            self.num_samples = 1 # dummy value, set it later to the correct testing segments 
+            self.num_frames = 1 # dummy value, set it later to the correct testing segments 
         else:
             raise Exception('Unknown split: {}'.format(split))
 
-        print('No of samples are {} and No. of indices in segment dict is {}'.format(self.num_samples, len(self.idx2segment_id)))
+        print('No of frames are {} and No. of indices in segment dict is {}'.format(self.num_frames, len(self.segments_dict_list)))
         
-        assert(self.num_samples == len(self.idx2segment_id)) #otherwise something wrong with data preprocessing
+        #TODO check no of folders equals no of segments and no of noz files in each folder equals no of frames for each segment
+        # assert(self.num_frames == len(self.idx2segment_id)) #otherwise something wrong with data preprocessing
 
-        # TODO: path check excpetions
-        self.camera_images_dir = os.path.join(self.split_dir, 'camera_images')
-        self.range_images_dir = os.path.join(self.split_dir, 'range_images')
-        self.point_cloud_dir = os.path.join(self.split_dir, 'point_cloud')
-        self.label_dir = os.path.join(self.split_dir, 'label')
+        # # TODO: path check excpetions
+        # self.camera_images_dir = os.path.join(self.split_dir, 'camera_images')
+        # self.range_images_dir = os.path.join(self.split_dir, 'range_images')
+        # self.point_cloud_dir = os.path.join(self.split_dir, 'point_cloud')
+        # self.label_dir = os.path.join(self.split_dir, 'label')
 
     def __len__(self):
-        return self.num_samples
+        return self.num_frames
+    def resolve_idx_to_frame(self, idx):
+        ''' Get Global idx and transorm into segment frame idx
+        '''
+        frame_idx = idx
+        for segment_dict in self.segments_dict_list:
+            if frame_idx >= segment_dict['frame_count']:
+                frame_idx -= segment_dict['frame_count']
+            else:
+                return (segment_dict['id'], frame_idx)
+
 
     def get_camera_images(self, idx):
         # img_filename = os.path.join(self.image_dir, '%06d.jpg'%(idx))
@@ -90,24 +107,30 @@ class waymo_object(object):
         raise NotImplementedError("Range images are not extracted. currently !!")
 
     def get_point_cloud(self, idx):
-        point_cloud_filename = os.path.join(self.point_cloud_dir, 'point_cloud_{}'.format(self.idx2segment_id[idx]))
-        return waymo_utils.load_point_cloud(point_cloud_filename)
+        segment_id, frame_id = self.resolve_idx_to_frame(idx)
+        frame_data_path = os.path.join(self.split_dir, segment_id, '{}_{}.npz'.format(segment_id, frame_id))
+        if not os.path.exists(frame_data_path):
+            raise ValueError('frame data is not found !')
+        return waymo_utils.load_point_cloud(frame_data_path)
         
-    def get_label_objects(self, idx):
-        label_filename = os.path.join(self.label_dir, 'label_{}'.format(self.idx2segment_id[idx]))
-        if not os.path.exists(label_filename):
-            raise Exception("Couldn't find objects file for idx {}".format(idx))
-        return waymo_utils.read_frame_bboxes(label_filename)
+    def get_labels(self, idx):
+        segment_id, frame_id = self.resolve_idx_to_frame(idx)
+        frame_data_path = os.path.join(self.split_dir, segment_id, '{}_{}.npz'.format(segment_id, frame_id))
+        if not os.path.exists(frame_data_path):
+            print(frame_data_path)
+            raise ValueError('frame data is not found !')
+        return waymo_utils.read_frame_bboxes(frame_data_path)
 
 def data_viz(data_dir, idx: int = np.nan, verbose: bool = False):  
     ''' Visualize frame from Waymo data '''
+    raise NotImplementedError("Not implemented !")
     waymo_objects = waymo_object(data_dir)
     idx = int (idx) if not np.isnan(idx) else np.random.choice(np.range(len(waymo_objects)))
     if verbose: print('Visualizing frame with idx {}'.format(idx))
     pc = waymo_objects.get_point_cloud(idx)
     if verbose: print("No of points recorded in LIDAR return is {}".format(pc.shape))
     
-    bboxes = waymo_objects.get_label_objects(idx)
+    bboxes = waymo_objects.get_labels(idx)
     if verbose: print("No. of BBoxes for this frame is {}".format(len(bboxes)))
 
     pc_norm = np.sqrt(np.power(pc, 2).sum(axis=1))
@@ -197,14 +220,15 @@ def extract_waymo_data(data_dir, split, output_folder, num_point=40000,
         os.mkdir(output_folder)
 
     for data_idx in range(len(dataset)):
+        # Get segment id and frame id
+        segment_id, frame_id = dataset.resolve_idx_to_frame(data_idx)
         if verbose: print('Extracting information from index {}'.format(data_idx))
-        objects = dataset.get_label_objects(data_idx)
+        objects = dataset.get_labels(data_idx)
         print("objects type", type(objects))
-        if verbose: print("Number of loaded objects are {}".format(len(objects)))
+        if verbose: print("Number of loaded objects for idx {} are {}".format(data_idx, objects.shape[0]))
 
         # Skip scenes with 0 object
-        if (len(objects) == 0 or \
-            len([obj for obj in objects if dataset.class2type[obj.label] in type_whitelist])== 0):
+        if (objects.shape[0] == 0):
                 print("+++++++++++++++++ Skipping Empty Scene, check that ++++++++++++++++")
                 continue
 
@@ -212,7 +236,11 @@ def extract_waymo_data(data_dir, split, output_folder, num_point=40000,
         pc_upright_depth_subsampled = pc_util.random_sampling(pc_upright_depth, num_point)
 
         # save th subsampled point cloud
-        np.savez_compressed(os.path.join(output_folder,'pc_{}.npz'.format(dataset.idx2segment_id[data_idx])),
+        segment_votes_path = os.path.join(output_folder, segment_id)
+        # create path if not found
+        Path(segment_votes_path).mkdir(parents=True, exist_ok=True)
+        
+        np.savez_compressed(os.path.join(segment_votes_path,'{}_{}_pc.npz'.format(segment_id, frame_id)),
             pc=pc_upright_depth_subsampled)
         # np.save(os.path.join(output_folder, '%06d_bbox.npy'%(data_idx)), obbs)
        
@@ -222,13 +250,14 @@ def extract_waymo_data(data_dir, split, output_folder, num_point=40000,
             point_votes = np.zeros((N,10)) # 3 votes and 1 vote mask 
             point_vote_idx = np.zeros((N)).astype(np.int32) # in the range of [0,2]
             indices = np.arange(N)
-            for obj in objects:
-                if dataset.class2type[obj.label] not in type_whitelist:
+            
+            for i in range(objects.shape[0]):
+                if dataset.class2type[objects[i][0]] not in type_whitelist:
                     if verbose: print("Skipping this object, not in the white list")
                     continue
                 try:
                     # Find all points in this object's OBB
-                    box3d_pts_3d = np.transpose(obj.corners())
+                    box3d_pts_3d = np.transpose(get_corners_from_labels_array(objects[i,:]))
                     # if verbose: print(" 3d box data shape {}".format(box3d_pts_3d.shape))
                     # if verbose: print("Box coordinates of the current object are {}".format(box3d_pts_3d))
                     pc_in_box3d,inds = waymo_utils.extract_pc_in_box3d(\
@@ -238,7 +267,7 @@ def extract_waymo_data(data_dir, split, output_folder, num_point=40000,
                     # Assign first dimension to indicate it is in an object box
                     point_votes[inds,0] = 1
                     # Add the votes (all 0 if the point is not in any object's OBB)
-                    votes = np.expand_dims(obj.center,0) - pc_in_box3d[:,0:3]
+                    votes = np.expand_dims(objects[i,4:7],0) - pc_in_box3d[:,0:3]
                     sparse_inds = indices[inds] # turn dense True,False inds to sparse number-wise inds
                     for i in range(len(sparse_inds)):
                         j = sparse_inds[i]
@@ -257,7 +286,7 @@ def extract_waymo_data(data_dir, split, output_folder, num_point=40000,
             #     if verbose: print("size of votes for index {} is {}".format(data_idx, point_votes.shape))
             #     pickle.dump(point_votes, fp) 
                 
-            np.savez_compressed(os.path.join(output_folder, 'votes_{}.npz'.format(dataset.idx2segment_id[data_idx])),
+            np.savez_compressed(os.path.join(segment_votes_path, '{}_{}_votes.npz'.format(segment_id, frame_id)),
                 point_votes = point_votes)
 
     
@@ -266,39 +295,29 @@ def get_box3d_dim_statistics(data_dir, type_whitelist=DEFAULT_TYPE_WHITELIST, sa
     Used for computing mean box sizes. """
     dataset = waymo_object(data_dir)
     dimension_list = []
-    type_list = []
-    ry_list = []
+    # type_list = []
+    # ry_list = []
     for data_idx in range(len(dataset)):
-        if verbose: print('Collecting Box statistics from idx {} '.format(data_idx))
-        bboxes = dataset.get_label_objects(data_idx)
-        for obj_idx in range(len(bboxes)):
-            obj = bboxes[obj_idx]
-            print(obj.label)
-            if dataset.class2type[obj.label] not in type_whitelist:
-                print("++++++++++++++ WARNING: UNKNOWN BOX TYPE +++++++++++++++")
-                continue
-            dimension_list.append(obj.lwh) 
-            type_list.append(obj.label) 
-            ry_list.append(obj.heading_angle)
-
-
-    # Get average box size for different catgories
-    # box3d_pts = np.vstack(dimension_list)
-    median_statistics = {}
-    for class_type in sorted(set(type_list)):
-        cnt = 0
-        box3d_list = []
-        for i in range(len(dimension_list)):
-            if type_list[i]==class_type:
-                cnt += 1
-                box3d_list.append(dimension_list[i])
-        median_box3d = np.median(box3d_list,0)
-        print("\'{}\': np.array([{:f},{:f},{:f}]),".format(class_type, median_box3d[0], median_box3d[1], median_box3d[2]))
-        median_statistics[class_type] = median_box3d[0], median_box3d[1], median_box3d[2]
+        
+        bboxes = dataset.get_labels(data_idx)
+        dimension_list.append(bboxes[:,0:4])
     
+    all_boxes = np.concatenate(dimension_list, axis = 0)
+    median_statistics = {}
+    
+    for class_type in range(5):
+        mask = (all_boxes[:,0] == class_type)
+        class_boxes = all_boxes[mask]
+        if class_boxes.shape[0] == 0:
+            continue
+        class_boxes = class_boxes[:,1:]
+        median_statistics[class_type] = np.median(class_boxes, axis=0)
+        print("\'{}\': np.array([{:f},{:f},{:f}]),".format(class_type, median_statistics[class_type][0], median_statistics[class_type][1], median_statistics[class_type][2]))
+
     if save_path is not None:
         with open(save_path,'wb') as fp:
             pickle.dump(median_statistics, fp)
+
 
 
 if __name__=='__main__':
@@ -311,19 +330,11 @@ if __name__=='__main__':
     parser.add_argument('--num_point', type=int, default=60000, help='Point Number [default: 60000]')
     args = parser.parse_args()
 
-    print("check reachable point")
+    # step 1
     if args.preprocessing:
         waymo_utils.preprocess_waymo_data('./dataset', 'training', args.verbose)
         exit()
-    
-    if args.viz:
-        data_viz(os.path.join(BASE_DIR, 'dataset'), idx = 0, verbose = args.verbose)
-        exit()
-
-    if args.compute_median_size:
-        get_box3d_dim_statistics(os.path.join(BASE_DIR, 'dataset'), verbose=args.verbose)
-        exit()
-    
+    # step 2
     if(args.extract_votes):
         extract_waymo_data(os.path.join(BASE_DIR, 'dataset'),
         split = 'training', 
@@ -333,4 +344,16 @@ if __name__=='__main__':
         verbose = args.verbose
         )
         exit()
+    # step 3
+    if args.compute_median_size:
+        get_box3d_dim_statistics(os.path.join(BASE_DIR, 'dataset'), verbose=args.verbose)
+        exit()
+    
+    if args.viz:
+        data_viz(os.path.join(BASE_DIR, 'dataset'), idx = 0, verbose = args.verbose)
+        exit()
+
+    
+    
+    
 

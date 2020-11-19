@@ -10,6 +10,7 @@ Date:
 
 '''
 import numpy as np
+from pathlib import Path
 import pickle
 import gzip
 import os
@@ -54,105 +55,98 @@ def rotz(t):
                      [0,  0,  1]])
 
 
-def preprocess_waymo_data(root_dir, split='training', verbose: bool =False):
-    """
-    Function will read the TFRecords and extract data for every first first frame in every segment and save it as text file. the data could be easily loaded afterwards by the data class for every frame instead of loading the whole segment
+def preprocess_waymo_data(dataset_dir, split='training', verbose: bool =False):
+    """ Function will read the TFRecords and extract data for every first first frame in every segment and save it as text file. the data could be easily loaded afterwards by the data class for every frame instead of loading the whole segment
+    Args:
+        root_dir: data split directory
+        split: type of data to preprocess options:[training, val, test]
+        verbose: flag to print debugging messages
+    Returns:
     """
     # TODO: checks to see if the function have been already exectuted before and successfully extracted the data or not
     
     # list all the segments in the folder
-    split_dir = os.path.join(BASE_DIR, root_dir, split)
+    split_dir = os.path.join(BASE_DIR, dataset_dir, split)
     if not os.path.exists(split_dir):
         raise Exception("Path is not found")
     segments_list = os.listdir(split_dir)
     
-    # create Dict idx to segment_id
-    idx2segment_id = {}
-
-    # create sub folders to extract the data
-    CAMERA_IMAGES_DIR = os.path.join(split_dir, 'camera_images')
-    if not os.path.exists(CAMERA_IMAGES_DIR):
-        os.mkdir(CAMERA_IMAGES_DIR)
-    RANGE_IMAGES_DIR = os.path.join(split_dir, 'range_images')
-    if not os.path.exists(RANGE_IMAGES_DIR):
-        os.mkdir(RANGE_IMAGES_DIR)
-    POINT_CLOUD_DIR = os.path.join(split_dir, 'point_cloud')
-    if not os.path.exists(POINT_CLOUD_DIR):
-        os.mkdir(POINT_CLOUD_DIR)
-    LABEL_DIR = os.path.join(split_dir, 'label')
-    if not os.path.exists(LABEL_DIR):
-        os.mkdir(LABEL_DIR)
+    # list of dictionaries for every segment
+    segments_dict_list = []
     
+    # Loop over every segment in the dataset
     for idx in range(len(segments_list)):
+        segment_dict = {}
         # get segment id
-        segment_id = segments_list[idx].split('-')[1].split('_')[0] # will get the ID number
-        if verbose:
-            print("Reading Segment, index: {}, ID: {}".format(idx, segment_id))
-        # add segment id with the respective idx to dict 
-        idx2segment_id[idx] = segment_id
-        print("Processing segment ID: {}".format(segment_id))
-        # get full path of TFRecord file
+        segment_id = '_'.join(segments_list[idx].split('_')[:5]) # will get the ID example: 'segment-10072140764565668044_4060_000_4080_000'
+        segment_dict['id'] = segment_id
+        if verbose: print("processing segment id {}".format(segment_id))
+
+        segment_dir = os.path.join(split_dir, segment_id)
+        # create folder for the current segment
+        Path(segment_dir).mkdir(parents=True, exist_ok=True)
         FILENAME = os.path.join(split_dir, segments_list[idx])
         if not os.path.exists(FILENAME):
             raise Exception("File cannot be found")
         # Read TFRecord
         recorded_segment = tf.data.TFRecordDataset(FILENAME, compression_type='')
+        # Loop over every frame
+        frame_count = 0
         for data in recorded_segment:
             # Read the first frame only
             frame = open_dataset.Frame()
             frame.ParseFromString(bytearray(data.numpy()))
-            break
-        # extract the camera images, camera projection points and range images
-        (range_images, 
-        camera_projections, 
-        range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
+            
+            if verbose: print("processing frame no. {}".format(frame_count))
+            
+            # extract the camera images, camera projection points and range images
+            (range_images, 
+            camera_projections, 
+            range_image_top_pose) = frame_utils.parse_range_image_and_camera_projection(frame)
+
+            # First return of Lidar data
+            points, cp_points = frame_utils.convert_range_image_to_point_cloud(
+                frame,
+                range_images,
+                camera_projections,
+                range_image_top_pose)
+
+            # Second return of Lidar data
+            points_ri2, cp_points_ri2 = frame_utils.convert_range_image_to_point_cloud(
+                frame,
+                range_images,
+                camera_projections,
+                range_image_top_pose,
+                ri_index=1)
+
+            # concatenate all LIDAR points from the 5 radars.
+            points_all = np.concatenate(points, axis=0)
+            points_all_ri2 = np.concatenate(points_ri2, axis=0)
+
+            bboxes = []
+            for laser_label in frame.laser_labels:
+                label = laser_label.type
+                length = laser_label.box.length
+                width = laser_label.box.width
+                height = laser_label.box.height
+                x, y, z = laser_label.box.center_x, laser_label.box.center_y, laser_label.box.center_z
+                heading = laser_label.box.heading
+                box = [label, length, width, height, x, y, z, heading]
+                bboxes.append(box)
+
+            labels_arr = np.array(bboxes, dtype=np.float32)
+            file_name = '_'.join([segment_id, str(frame_count)])
+            np.savez_compressed(os.path.join(segment_dir, '{}.npz'.format(file_name)),pc=points_all, pc_ri2 = points_all_ri2, labels=labels_arr)
+            
         
-        # First return of Lidar data
-        points, cp_points = frame_utils.convert_range_image_to_point_cloud(
-            frame,
-            range_images,
-            camera_projections,
-            range_image_top_pose)
+            frame_count += 1
+        # after every frame extracted, save the metadata for it    
+        segment_dict['frame_count'] = frame_count
+        segments_dict_list.append(segment_dict)
 
-        # Second return of Lidar data
-        points_ri2, cp_points_ri2 = frame_utils.convert_range_image_to_point_cloud(
-            frame,
-            range_images,
-            camera_projections,
-            range_image_top_pose,
-            ri_index=1)
-
-        # concatenate all LIDAR points from the 5 radars.
-        points_all = np.concatenate(points, axis=0)
-        points_all_ri2 = np.concatenate(points_ri2, axis=0)
-
-        # save file on the desk
-        pickle_out = open(os.path.join(POINT_CLOUD_DIR, 'point_cloud_{}'.format(segment_id)), 'wb')
-        pickle.dump(points_all, pickle_out)
-        pickle_out.close()
-        pickle_out_ri2 = open(os.path.join(POINT_CLOUD_DIR, 'point_cloud_{}_ri2'.format(segment_id)), 'wb')
-        pickle.dump(points_all_ri2, pickle_out_ri2)
-        pickle_out_ri2.close()
-
-        # extracting labels and save them
-        bboxes = []
-        for laser_label in frame.laser_labels:
-            label = laser_label.type
-            length = laser_label.box.length
-            width = laser_label.box.width
-            height = laser_label.box.height
-            x, y, z = laser_label.box.center_x, laser_label.box.center_y, laser_label.box.center_z
-            box = Box([x,y,z], [length, width, height], laser_label.box.heading, label)
-            bboxes.append(box)
-
-        # save the bounding boxes in their respective directory
-        pickle_out = open(os.path.join(LABEL_DIR, 'label_{}'.format(segment_id)), 'wb')
-        pickle.dump(bboxes, pickle_out)
-        pickle_out.close()
-
-    # save idx2segment_id dict on desk
-    pickle_out = open(os.path.join(split_dir, 'idx2segment_id_dict'), 'wb')
-    pickle.dump(idx2segment_id, pickle_out)
+    # save segmetns dictioanry list on desk, this would be used later to count the size of the dataset and navigate through the dataset
+    pickle_out = open(os.path.join(split_dir, 'segments_dict_list'), 'wb')
+    pickle.dump(segments_dict_list, pickle_out)
     pickle_out.close()
 
 
@@ -172,11 +166,18 @@ def extract_pc_in_box3d(pc, box3d):
 
 
 def load_image(img_filename):
-    pass
+    raise NotImplementedError("Not implemented !")
 def load_range_images():
-    pass
+    raise NotImplementedError("Not implemented !")
 
-def read_frame_bboxes(label_file_name):
+def read_frame_bboxes(frame_data_path):
+    ''' Return array of bounding boxes
+    '''
+    with np.load(frame_data_path) as frame_data:
+        point_cloud = frame_data['labels']
+    return point_cloud
+
+def read_frame_bboxes_as_objects(label_file_name):
     bboxes = []
     pickle_in = open(label_file_name, 'rb')
     bboxes = pickle.load(pickle_in)
@@ -184,10 +185,10 @@ def read_frame_bboxes(label_file_name):
     print("Loaded file type is ", type(bboxes), "length of the list is ", len(bboxes))
     return bboxes
 
+
 def load_point_cloud(point_cloud_filename):
-    pickle_in = open(point_cloud_filename, 'rb')
-    point_cloud = pickle.load(pickle_in)
-    pickle_in.close()
+    with np.load(point_cloud_filename) as frame_data:
+        point_cloud = frame_data['pc']
     return point_cloud
 
 
