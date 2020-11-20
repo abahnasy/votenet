@@ -29,7 +29,8 @@ import scipy.io as sio # to load .mat files for depth points
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
-sys.path.append(os.path.join(ROOT_DIR, 'utils'))
+sys.path.append(os.path.join(ROOT_DIR, '..', 'utils'))
+from utils.box_util import get_corners_from_labels_array
 import pc_util
 import waymo_utils
 from model_util_waymo import WaymoDatasetConfig
@@ -41,7 +42,8 @@ MAX_NUM_OBJ = 128 # maximum number of objects allowed per scene
 class WaymoDetectionVotesDataset(Dataset):
     def __init__(self, split_set='training', num_points=60000,
         use_height=False,
-        augment=False):
+        augment=False,
+        verbose:bool = True):
 
         # assert(num_points<=60000)
         self.split_set = split_set
@@ -50,14 +52,37 @@ class WaymoDetectionVotesDataset(Dataset):
 
         # self.raw_data_path = os.path.join(ROOT_DIR, 'dataset')
         
-        # access votes folder and get segment names
-        self.scan_names = sorted(list(set([os.path.basename(x).split("_")[1].split('.')[0] for x in os.listdir(os.path.join(self.data_path, 'training', 'votes'))])))
+        # access segments dictionary list
+        # load segments_dict_list dictionary
+         
+        self.segments_dict_list_path = os.path.join(self.data_path, 'training', 'segments_dict_list')
+        if not os.path.exists(self.segments_dict_list_path):
+            raise ValueError('segments Dictionary list is not found, make sure to preprocess the data first')
+        with open(self.segments_dict_list_path, 'rb') as f:
+            self.segments_dict_list = pickle.load(f)
+        self.num_segments = len(self.segments_dict_list)
+        if verbose: print("No of segments in the dataset is {}".format(len(self.segments_dict_list)))
+        self.num_frames = 0
+        for segment_dict in self.segments_dict_list:
+            # add total number of frames in every segment
+            self.num_frames += segment_dict['frame_count']
+        # self.scan_names = sorted(list(set([os.path.basename(x).split("_")[1].split('.')[0] for x in os.listdir(os.path.join(self.data_path, 'training', 'votes'))])))
         self.num_points = num_points
         self.augment = augment
         self.use_height = use_height
        
     def __len__(self):
-        return len(self.scan_names)
+        return self.num_frames
+    
+    def resolve_idx_to_frame(self, idx):
+        ''' Get Global idx and transorm into segment frame idx
+        '''
+        frame_idx = idx
+        for segment_dict in self.segments_dict_list:
+            if frame_idx >= segment_dict['frame_count']:
+                frame_idx -= segment_dict['frame_count']
+            else:
+                return (segment_dict['id'], frame_idx)
 
     def __getitem__(self, idx):
         """
@@ -77,19 +102,29 @@ class WaymoDetectionVotesDataset(Dataset):
             scan_idx: int scan index in scan_names list
             max_gt_bboxes: unused
         """
-        scan_name = self.scan_names[idx]
-        point_cloud = np.load(os.path.join(self.data_path, self.split_set, 'votes' ,'pc_{}.npz'.format(scan_name)))['pc'] # Nx3
-        with open(os.path.join(self.data_path, self.split_set, 'label', 'label_{}'.format(scan_name)), 'rb') as fp:    
-            bboxes_list = pickle.load(fp) # list of Box objects
+        segment_id, frame_idx = self.resolve_idx_to_frame(idx)
+        
+        point_cloud = np.load(os.path.join(self.data_path, self.split_set, 'votes', '{}'.format(segment_id), '{}_{}_pc.npz'.format(segment_id, frame_idx)))['pc'] # Nx3
+
+        assert point_cloud.shape[1] == 3
+        
+        frame_data_path = os.path.join(self.data_path, self.split_set,'{}'.format(segment_id) ,'{}_{}.npz'.format(segment_id, frame_idx))
+        
+        frame_data = np.load(frame_data_path)
+        labels = frame_data['labels']
+        assert labels.shape[1] == 8
         # create bboxes matrix
-        bboxes = np.zeros((len(bboxes_list), 8))
-        for idx in range(len(bboxes_list)):
-            
-            bboxes[idx, 0:3] = bboxes_list[idx].center
-            bboxes[idx, 3:6] = bboxes_list[idx].lwh
-            bboxes[idx, 6] = bboxes_list[idx].heading_angle
-            bboxes[idx, 7] = bboxes_list[idx].label
-        point_votes = np.load(os.path.join(self.data_path, self.split_set, 'votes' ,'votes_{}.npz'.format(scan_name)))['point_votes'] # Nx10
+        bboxes = np.zeros_like(labels)
+        for i in range(labels.shape[0]):
+            bboxes[i, 0:3] = labels[i,4:7] #centers
+            bboxes[i, 3:6] = labels[i,1:4] #lwh
+            bboxes[i, 6] = labels[i,7] # heading
+            bboxes[i, 7] = labels[i,0] #label
+        
+        
+        point_votes = np.load(os.path.join(self.data_path, self.split_set, 'votes', '{}'.format(segment_id) ,'{}_{}_votes.npz'.format(segment_id, frame_idx)))['point_votes'] # Nx10
+
+        assert point_votes.shape[1] == 10
 
         
         point_cloud = point_cloud[:,0:3]
@@ -163,7 +198,8 @@ class WaymoDetectionVotesDataset(Dataset):
         target_bboxes = np.zeros((MAX_NUM_OBJ, 6))
         for i in range(bboxes.shape[0]):
             bbox = bboxes[i]
-            corners_3d = np.transpose(bboxes_list[i].corners()) # 8 x 3
+            corners_3d = np.transpose(get_corners_from_labels_array(bbox)) # 8 x 3
+            # import pdb; pdb.set_trace()
             # compute axis aligned box
             xmin = np.min(corners_3d[:,0])
             ymin = np.min(corners_3d[:,1])
