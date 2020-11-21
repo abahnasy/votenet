@@ -62,6 +62,8 @@ parser.add_argument('--no_height', action='store_true', help='Do NOT use height 
 parser.add_argument('--overwrite', action='store_true', help='Overwrite existing log and dump folders.')
 parser.add_argument('--dump_results', action='store_true', help='Dump results.')
 parser.add_argument('--verbose', action='store_true', help='Print debugging messages')
+
+parser.add_argument('--load_saved_model', action='store_true')
 FLAGS = parser.parse_args()
 
 # ------------------------------------------------------------------------- GLOBAL CONFIG BEG
@@ -312,7 +314,7 @@ def evaluate_one_epoch():
                 stat_dict[key] += end_points[key].item()
 
         batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
-        batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT) 
+        batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT)
         ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
 
         # Dump evaluation results for visualization
@@ -366,27 +368,29 @@ def evaluate_overfit_run():
 
         
         batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT)
-        print("number of ground Truth: {}".format(len(batch_gt_map_cls[0])))
-        
         batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
-        print("number of predictions: {}".format(len(batch_pred_map_cls[0])))
+        for i in range(len(batch_gt_map_cls)):
+            print("number of ground Truth in frame {} is: {}".format(i, len(batch_gt_map_cls[i])))
+            print("number of predictions in frame {} is: {}".format(i, len(batch_pred_map_cls[i])))
 
         # Extract prediction for visialization
-        # import pickle 
-        # with open("./visualizations", 'wb') as fp:
-        #     dictie = {}
-        #     dictie['point_cloud'] = batch_data_label['point_clouds'].detach().cpu().numpy()
-        #     dictie['parsed_gt'] = batch_gt_map_cls
-        #     dictie['parsed_predictions'] = batch_pred_map_cls
-        #     pickle.dump(dictie, fp)
+        import pickle 
+        print("exporting visualizations file")
+        with open("./visualizations", 'wb') as fp:
+            dictie = {}
+            # pick only the first frame in the batch
+            dictie['point_cloud'] = batch_data_label['point_clouds'][0].detach().cpu().numpy()
+            dictie['parsed_gt'] = batch_gt_map_cls[0]
+            dictie['parsed_predictions'] = batch_pred_map_cls[0]
+            pickle.dump(dictie, fp)
 
         
         
-        # ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
+        ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
 
         # Dump evaluation results for visualization
         # if FLAGS.dump_results and batch_idx == 0 and EPOCH_CNT %10 == 0:
-            # MODEL.dump_results(end_points, DUMP_DIR, DATASET_CONFIG) 
+        #     MODEL.dump_results(end_points, DUMP_DIR, DATASET_CONFIG) 
 
     # Log statistics
     TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
@@ -395,12 +399,12 @@ def evaluate_overfit_run():
         log_string('eval mean %s: %f'%(key, stat_dict[key]/(float(batch_idx+1))))
 
     # Evaluate average precision
-    # metrics_dict = ap_calculator.compute_metrics()
-    # for key in metrics_dict:
-        # log_string('eval %s: %f'%(key, metrics_dict[key]))
+    metrics_dict = ap_calculator.compute_metrics()
+    for key in metrics_dict:
+        log_string('eval %s: %f'%(key, metrics_dict[key]))
 
-    # mean_loss = stat_dict['loss']/float(batch_idx+1)
-    # return mean_loss
+    mean_loss = stat_dict['loss']/float(batch_idx+1)
+    return mean_loss
 
 
 def train(start_epoch):
@@ -421,16 +425,16 @@ def train(start_epoch):
             print("Logging Visualizations for validation")
             loss = evaluate_overfit_run()
             # loss = evaluate_one_epoch()
-        # # Save checkpoint
-        # save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
-        #             'optimizer_state_dict': optimizer.state_dict(),
-        #             'loss': loss,
-        #             }
-        # try: # with nn.DataParallel() the net is added as a submodule of DataParallel
-        #     save_dict['model_state_dict'] = net.module.state_dict()
-        # except:
-        #     save_dict['model_state_dict'] = net.state_dict()
-        # torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint.tar'))
+        # Save checkpoint
+        save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
+                    'optimizer_state_dict': optimizer.state_dict(),
+                    'loss': loss,
+                    }
+        try: # with nn.DataParallel() the net is added as a submodule of DataParallel
+            save_dict['model_state_dict'] = net.module.state_dict()
+        except:
+            save_dict['model_state_dict'] = net.state_dict()
+        torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint.tar'))
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
