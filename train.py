@@ -436,7 +436,49 @@ def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 if __name__=='__main__':
-    print("Total number of model parameters are {}".format(count_parameters(net)))
-    torch.cuda.empty_cache()
+    import pickle
     
-    train(start_epoch)
+    if FLAGS.load_saved_model == True:
+        MODEL_PATH = os.path.join(LOG_DIR, 'checkpoint.tar')
+        loaded_dict = torch.load(MODEL_PATH)
+        # print(loaded_dict['model_state_dict'].keys())
+        net.load_state_dict(loaded_dict['model_state_dict'])
+        net.eval()
+
+        TRAIN_DATALOADER = DataLoader(TRAIN_DATASET, batch_size=1, shuffle=True, num_workers=0, worker_init_fn=my_worker_init_fn)
+        
+        for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
+            
+            for key in batch_data_label:
+                batch_data_label[key] = batch_data_label[key].to(device)
+
+                
+            # Forward pass
+            inputs = {'point_clouds': batch_data_label['point_clouds']}
+            with torch.no_grad():
+                end_points = net(inputs)
+
+            for key in batch_data_label:
+                assert(key not in end_points)
+                end_points[key] = batch_data_label[key]
+
+            # Extract prediction for visialization
+            print(end_points.keys())
+            batch_gt_map_cls = parse_groundtruths(end_points, CONFIG_DICT)
+            batch_pred_map_cls = parse_predictions(end_points, CONFIG_DICT) 
+        
+            with open("./visualizations", 'wb') as fp:
+                dictie = {}
+                dictie['point_cloud'] = batch_data_label['point_clouds'].detach().cpu().numpy()
+                dictie['parsed_gt'] = batch_gt_map_cls
+                dictie['parsed_predictions'] = batch_pred_map_cls
+                pickle.dump(dictie, fp)
+            break # only parse one frame from the dataset
+        exit()
+    else:
+        print("Total number of model parameters are {}".format(count_parameters(net)))
+        torch.cuda.empty_cache()
+    
+        train(start_epoch)
+
+

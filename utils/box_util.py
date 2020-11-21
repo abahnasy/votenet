@@ -126,14 +126,14 @@ class Box:
 def get_corners_from_labels_array(label, wlh_factor: float = 1.0) -> np.ndarray:
     ''' takes 1x8 array contains label information
     Args:
-        np.array 1x8 contains label information
+        np.array 1x8 contains label information [x, y, z, l, w, h, heading, labels]
     Returns:
     '''
     
     
-    length = label[1] * wlh_factor
-    width = label[2] * wlh_factor
-    height = label[3] * wlh_factor
+    length = label[3] * wlh_factor
+    width = label[4] * wlh_factor
+    height = label[5] * wlh_factor
     
     
     
@@ -143,13 +143,13 @@ def get_corners_from_labels_array(label, wlh_factor: float = 1.0) -> np.ndarray:
     z_corners = height / 2 * np.array([1, 1, -1, -1, 1, 1, -1, -1])
     corners = np.vstack((x_corners, y_corners, z_corners))
     
-    orientation = Quaternion(axis=(0.0, 0.0, 1.0), radians=label[7])
+    orientation = Quaternion(axis=(0.0, 0.0, 1.0), radians=label[6])
     
     # Rotate
     corners = np.dot(orientation.rotation_matrix, corners)
     
     # Translate
-    x, y, z = label[4], label[5], label[6]
+    x, y, z = label[0], label[1], label[2]
     corners[0, :] = corners[0, :] + x
     corners[1, :] = corners[1, :] + y
     corners[2, :] = corners[2, :] + z
