@@ -21,7 +21,7 @@ import numpy as np
 import sys
 import argparse
 from pathlib import Path
-import plotly.graph_objects as go
+#import plotly.graph_objects as go
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
@@ -37,7 +37,7 @@ DEFAULT_TYPE_WHITELIST = ['TYPE_UNKNOWN','TYPE_VEHICLE','TYPE_PEDESTRIAN','TYPE_
 
 class waymo_object(object):
     ''' Load and parse object data '''
-    def __init__(self, root_dir, split='training', verbose:bool = False):
+    def __init__(self, root_dir, split='train', verbose:bool = False):
         self.root_dir = root_dir
         self.split = split
         self.split_dir = os.path.join(BASE_DIR, root_dir, split)
@@ -57,20 +57,11 @@ class waymo_object(object):
         self.type2class = {'TYPE_UNKNOWN':0,'TYPE_VEHICLE':1,'TYPE_PEDESTRIAN':2,'TYPE_SIGN':3,'TYPE_CYCLIST':4}
         self.class2type = {self.type2class[t]:t for t in self.type2class}
         # get the count of the dataset
-        if split == 'training':
-            self.num_frames = 0
-            for segment_dict in self.segments_dict_list:
-                # add total number of frames in every segment
-                self.num_frames += segment_dict['frame_count']
-            
-        elif split == 'validation': # TODO
-            self.num_frames = 150 # total number of validation segments
-
-        elif split == 'testing': # TODO
-            # TODO: change it later when you start to configure the testing
-            self.num_frames = 1 # dummy value, set it later to the correct testing segments 
-        else:
-            raise Exception('Unknown split: {}'.format(split))
+        
+        self.num_frames = 0
+        for segment_dict in self.segments_dict_list:
+            # add total number of frames in every segment
+            self.num_frames += segment_dict['frame_count']
 
         print('No of frames are {} and No. of indices in segment dict is {}'.format(self.num_frames, len(self.segments_dict_list)))
         
@@ -213,7 +204,7 @@ def extract_waymo_data(data_dir, split, output_folder, num_point=40000,
             then three sets of GT votes for up to three objects. If the point is only in one
             object's OBB, then the three GT votes are the same.
     """
-    dataset = waymo_object(data_dir)
+    dataset = waymo_object(data_dir, split)
     if verbose: print("Length of the loaded dataset is {}".format(len(dataset)))
 
     if not os.path.exists(output_folder):
@@ -323,22 +314,37 @@ def get_box3d_dim_statistics(data_dir, type_whitelist=DEFAULT_TYPE_WHITELIST, sa
 if __name__=='__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--verbose', action='store_true')
-    parser.add_argument('--preprocessing', action='store_true', help='Extract the data into readable foramt to be used for viz and training')
+    parser.add_argument('--preprocessing-train', action='store_true', help='Extract the data into readable foramt to be used for viz and training')
+    parser.add_argument('--preprocessing-val', action='store_true', help='Extract the data into readable foramt to be used for viz and training')
     parser.add_argument('--viz', action='store_true', help='Run data visualization.')
     parser.add_argument('--compute_median_size', action='store_true', help='Compute median 3D bounding box sizes for each class.')
-    parser.add_argument('--extract_votes', action='store_true')
+    parser.add_argument('--extract-votes-train', action='store_true')
+    parser.add_argument('--extract-votes-val', action='store_true')
     parser.add_argument('--num_point', type=int, default=60000, help='Point Number [default: 60000]')
     args = parser.parse_args()
 
     # step 1
-    if args.preprocessing:
-        waymo_utils.preprocess_waymo_data('./dataset', 'training', args.verbose)
+    if args.preprocessing_train:
+        waymo_utils.preprocess_waymo_data('./dataset', 'train', args.verbose)
+        exit()
+
+    if args.preprocessing_val:
+        waymo_utils.preprocess_waymo_data('./dataset', 'val', args.verbose)
         exit()
     # step 2
-    if(args.extract_votes):
+    if(args.extract_votes_train): # extract votes for both splits train and validation
         extract_waymo_data(os.path.join(BASE_DIR, 'dataset'),
-        split = 'training', 
-        output_folder= os.path.join(BASE_DIR, 'dataset', 'training', 'votes'),
+        split = 'train', 
+        output_folder= os.path.join(BASE_DIR, 'dataset', 'train', 'votes'),
+        save_votes = True,
+        num_point = args.num_point,
+        verbose = args.verbose
+        )
+        exit()
+    if(args.extract_votes_val): # extract votes for both splits train and validation
+        extract_waymo_data(os.path.join(BASE_DIR, 'dataset'),
+        split = 'val', 
+        output_folder= os.path.join(BASE_DIR, 'dataset', 'val', 'votes'),
         save_votes = True,
         num_point = args.num_point,
         verbose = args.verbose
