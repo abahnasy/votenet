@@ -1,12 +1,9 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
-# 
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
+# Adopted From: https://github.com/facebookresearch/votenet/
 
-""" Training routine for 3D object detection with SUN RGB-D or ScanNet.
+""" Training routine for Waymo dataset
 
 Sample usage:
-python train.py --dataset sunrgbd --log_dir log_sunrgbd
+python3 train.py --model=votenet --dataset=waymo --log_dir=log --dump_dir=dump --num_point=100000 --max_epoch=100 --batch_size=1 --overwrite --dump_results --verbose
 
 To use Tensorboard:
 At server:
@@ -56,7 +53,7 @@ parser.add_argument('--learning_rate', type=float, default=0.001, help='Initial 
 parser.add_argument('--weight_decay', type=float, default=0, help='Optimization L2 weight decay [default: 0]')
 parser.add_argument('--bn_decay_step', type=int, default=20, help='Period of BN decay (in epochs) [default: 20]')
 parser.add_argument('--bn_decay_rate', type=float, default=0.5, help='Decay rate for BN decay [default: 0.5]')
-parser.add_argument('--lr_decay_steps', default='80,120,160', help='When to decay the learning rate (in epochs) [default: 80,120,160]')
+parser.add_argument('--lr_decay_steps', default='65,500,500', help='When to decay the learning rate (in epochs) [default: 80,120,160]')
 parser.add_argument('--lr_decay_rates', default='0.1,0.1,0.1', help='Decay rates for lr decay [default: 0.1,0.1,0.1]')
 parser.add_argument('--no_height', action='store_true', help='Do NOT use height signal in input.')
 parser.add_argument('--overwrite', action='store_true', help='Overwrite existing log and dump folders.')
@@ -116,22 +113,22 @@ if FLAGS.dataset == 'waymo':
     from waymo_detection_dataset import WaymoDetectionVotesDataset, MAX_NUM_OBJ
     from model_util_waymo import WaymoDatasetConfig
     DATASET_CONFIG = WaymoDatasetConfig()
-    TRAIN_DATASET = WaymoDetectionVotesDataset('training', num_points=NUM_POINT,
+    TRAIN_DATASET = WaymoDetectionVotesDataset('train', num_points=NUM_POINT,
         use_height = (not FLAGS.no_height), augment=False)
-    # TEST_DATASET = WaymoDetectionVotesDataset('val', num_points=NUM_POINT,
-    #     use_height = (not FLAGS.no_height), augment=False)
+    TEST_DATASET = WaymoDetectionVotesDataset('val', num_points=NUM_POINT,
+        use_height = (not FLAGS.no_height), augment=False)
 
 else:
     print('Unknown dataset %s. Exiting...'%(FLAGS.dataset))
     exit(-1)
 # print(len(TRAIN_DATASET), len(TEST_DATASET))
-print(len(TRAIN_DATASET))
+print("Length of train dataset is ", len(TRAIN_DATASET))
 TRAIN_DATALOADER = DataLoader(TRAIN_DATASET, batch_size=BATCH_SIZE,
     shuffle=True, num_workers=4, worker_init_fn=my_worker_init_fn)
-# TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=BATCH_SIZE,
-    # shuffle=True, num_workers=4, worker_init_fn=my_worker_init_fn)
+TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=BATCH_SIZE,
+    shuffle=True, num_workers=4, worker_init_fn=my_worker_init_fn)
 # print(len(TRAIN_DATALOADER), len(TEST_DATALOADER))
-print(len(TRAIN_DATALOADER))
+print("Length of val dataset is ", len(TRAIN_DATASET))
 
 # Init the model and optimzier
 MODEL = importlib.import_module(FLAGS.model) # import network module
@@ -152,10 +149,10 @@ net = Detector(num_class=DATASET_CONFIG.num_class,
                vote_factor=FLAGS.vote_factor,
                sampling=FLAGS.cluster_sampling)
 
-if torch.cuda.device_count() > 1:
-  log_string("Let's use %d GPUs!" % (torch.cuda.device_count()))
-  # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
-  net = nn.DataParallel(net)
+# if torch.cuda.device_count() > 1:
+#   log_string("Let's use %d GPUs!" % (torch.cuda.device_count()))
+#   # dim = 0 [30, xxx] -> [10, ...], [10, ...], [10, ...] on 3 GPUs
+#   net = nn.DataParallel(net)
 
 net.to(device)
 criterion = MODEL.get_loss
@@ -269,21 +266,19 @@ def train_one_epoch():
         #     pickle.dump(dictie, fp)
         
         # ==== Temp implementation === #
+    #     TRAIN_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
+    #     (EPOCH_CNT*len(TRAIN_DATALOADER)+batch_idx)*BATCH_SIZE)
+            # for key in sorted(stat_dict.keys()):
+            #     log_string('mean %s: %f'%(key, stat_dict[key]/float(batch_idx+1)))
+            #     stat_dict[key] = 0    
         
         
-        
-        batch_interval = 10
-        if (batch_idx+1) % batch_interval == 0:
-            print("Logging Visualizations for training")
-            log_string(' ---- batch: %03d ----' % (batch_idx+1))
-            TRAIN_VISUALIZER.log_scalars({key:stat_dict[key]/batch_interval for key in stat_dict},
-                (EPOCH_CNT*len(TRAIN_DATALOADER)+batch_idx)*BATCH_SIZE)
-            for key in sorted(stat_dict.keys()):
-                log_string('mean %s: %f'%(key, stat_dict[key]/batch_interval))
-                stat_dict[key] = 0
-        # if FLAGS.verbose:
-            # print("since verbose is activated, we only run the model once !")
-            # break
+   # Epoch Logging
+    TRAIN_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
+        (EPOCH_CNT))
+    for key in sorted(stat_dict.keys()):
+        log_string('mean %s: %f'%(key, stat_dict[key]/float(batch_idx+1)))
+        stat_dict[key] = 0
 
 def evaluate_one_epoch():
     stat_dict = {} # collect statistics
@@ -340,12 +335,12 @@ def evaluate_overfit_run():
     temp function to test overfit over couple of frames. test network functionality
     """
     stat_dict = {} # collect statistics
-    ap_calculator = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
-        class2type_map=DATASET_CONFIG.class2type)
+    # ap_calculator = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
+        # class2type_map=DATASET_CONFIG.class2type)
     net.eval() # set model to eval mode (for bn and dp)
-    for batch_idx, batch_data_label in enumerate(TRAIN_DATALOADER):
-        if batch_idx % 1 == 0:
-            print('Eval batch: %d'%(batch_idx))
+    for batch_idx, batch_data_label in enumerate(TEST_DATALOADER):
+        
+        print('Eval batch: %d'%(batch_idx))
         for key in batch_data_label:
             batch_data_label[key] = batch_data_label[key].to(device)
         
@@ -376,7 +371,7 @@ def evaluate_overfit_run():
         # Extract prediction for visialization
         import pickle 
         print("exporting visualizations file")
-        with open("./visualizations", 'wb') as fp:
+        with open("./saved_viz/visualizations_{}".format(EPOCH_CNT), 'wb') as fp:
             dictie = {}
             # pick only the first frame in the batch
             dictie['point_cloud'] = batch_data_label['point_clouds'][0].detach().cpu().numpy()
@@ -386,22 +381,21 @@ def evaluate_overfit_run():
 
         
         
-        ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
+        # ap_calculator.step(batch_pred_map_cls, batch_gt_map_cls)
 
         # Dump evaluation results for visualization
         # if FLAGS.dump_results and batch_idx == 0 and EPOCH_CNT %10 == 0:
         #     MODEL.dump_results(end_points, DUMP_DIR, DATASET_CONFIG) 
 
     # Log statistics
-    TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
-        (EPOCH_CNT+1)*len(TRAIN_DATALOADER)*BATCH_SIZE)
+    TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},(EPOCH_CNT))
     for key in sorted(stat_dict.keys()):
         log_string('eval mean %s: %f'%(key, stat_dict[key]/(float(batch_idx+1))))
 
     # Evaluate average precision
-    metrics_dict = ap_calculator.compute_metrics()
-    for key in metrics_dict:
-        log_string('eval %s: %f'%(key, metrics_dict[key]))
+    # metrics_dict = ap_calculator.compute_metrics()
+    # for key in metrics_dict:
+    #     log_string('eval %s: %f'%(key, metrics_dict[key]))
 
     mean_loss = stat_dict['loss']/float(batch_idx+1)
     return mean_loss
@@ -426,15 +420,15 @@ def train(start_epoch):
             loss = evaluate_overfit_run()
             # loss = evaluate_one_epoch()
         # Save checkpoint
-        save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
-                    'optimizer_state_dict': optimizer.state_dict(),
-                    'loss': loss,
-                    }
-        try: # with nn.DataParallel() the net is added as a submodule of DataParallel
-            save_dict['model_state_dict'] = net.module.state_dict()
-        except:
-            save_dict['model_state_dict'] = net.state_dict()
-        torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint.tar'))
+        # save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1
+        #             'optimizer_state_dict': optimizer.state_dict(),
+        #             'loss': loss,
+        #             }
+        # try: # with nn.DataParallel() the net is added as a submodule of DataParallel
+            # save_dict['model_state_dict'] = net.module.state_dict()
+        # except:
+        # save_dict['model_state_dict'] = net.state_dict()
+        # torch.save(save_dict, os.path.join(LOG_DIR, 'checkpoint.tar'))
 
 def count_parameters(model):
     return sum(p.numel() for p in model.parameters() if p.requires_grad)

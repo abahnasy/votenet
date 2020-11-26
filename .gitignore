@@ -8,3 +8,7 @@ pointnet2/pointnet2.egg-info/
 sunrgbd/__pycache__/
 venv/
 notebooks/.ipynb_checkpoints/
+# ignore files in folder foo
+saved_viz/*
+!saved_viz/.keep
+

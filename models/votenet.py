@@ -1,7 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates.
-# 
-# This source code is licensed under the MIT license found in the
-# LICENSE file in the root directory of this source tree.
+# Adopted From: https://github.com/facebookresearch/votenet/
 
 """ Deep hough voting network for 3D object detection in point clouds.
 

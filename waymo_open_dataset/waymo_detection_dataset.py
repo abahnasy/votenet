@@ -27,10 +27,10 @@ import pickle
 from torch.utils.data import Dataset
 import scipy.io as sio # to load .mat files for depth points
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-ROOT_DIR = os.path.dirname(BASE_DIR)
+# ROOT_DIR = os.path.dirname(BASE_DIR)
 sys.path.append(BASE_DIR)
-sys.path.append(os.path.join(ROOT_DIR, '..', 'utils'))
-from utils.box_util import get_corners_from_labels_array
+sys.path.append(os.path.join(BASE_DIR, '..', 'utils'))
+from box_util import get_corners_from_labels_array
 import pc_util
 import waymo_utils
 from model_util_waymo import WaymoDatasetConfig
@@ -40,7 +40,7 @@ MAX_NUM_OBJ = 128 # maximum number of objects allowed per scene
 # MEAN_COLOR_RGB = np.array([0.5,0.5,0.5]) # sunrgbd color is in 0~1
 
 class WaymoDetectionVotesDataset(Dataset):
-    def __init__(self, split_set='training', num_points=60000,
+    def __init__(self, split_set='train', num_points=60000,
         use_height=False,
         augment=False,
         verbose:bool = True):
@@ -50,12 +50,12 @@ class WaymoDetectionVotesDataset(Dataset):
         self.data_path = os.path.join(BASE_DIR,
                 'dataset') # TODO: rename to votes data path
 
-        # self.raw_data_path = os.path.join(ROOT_DIR, 'dataset')
+        # self.raw_data_path = os.path.join(BASE_DIR, 'dataset')
         
         # access segments dictionary list
         # load segments_dict_list dictionary
          
-        self.segments_dict_list_path = os.path.join(self.data_path, 'training', 'segments_dict_list')
+        self.segments_dict_list_path = os.path.join(self.data_path, split_set, 'segments_dict_list')
         if not os.path.exists(self.segments_dict_list_path):
             raise ValueError('segments Dictionary list is not found, make sure to preprocess the data first')
         with open(self.segments_dict_list_path, 'rb') as f:
