@@ -52,6 +52,7 @@ class BoxNet(nn.Module):
 
         # Backbone point feature learning
         self.backbone_net = Pointnet2Backbone(input_feature_dim=self.input_feature_dim)
+        # self.backbone_net = Pointnet2Backbone_MSG(input_feature_dim=self.input_feature_dim)
 
         # Box proposal, aggregation and detection
         self.pnet = ProposalModule(num_class, num_heading_bin, num_size_cluster,
