@@ -174,7 +174,7 @@ def data_viz(data_dir, idx: int = np.nan, verbose: bool = False):
     fig.update_layout(scene_aspectmode="data")
     fig.show()
 
-def extract_waymo_data(data_dir, split, output_folder, num_point=40000,
+def extract_waymo_data(data_dir, split, output_folder, num_point=126000,
     type_whitelist=DEFAULT_TYPE_WHITELIST,
     save_votes=False, verbose: bool = False):
     """ Extract scene point clouds and 

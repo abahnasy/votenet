@@ -50,7 +50,7 @@ def rotz(t):
                      [0,  0,  1]])
 
 
-def preprocess_waymo_data(dataset_dir, split='train', verbose: bool =False):
+def preprocess_waymo_data(dataset_dir, split='train', verbose: bool =False): #TODO: Obselete function should be handled inside the download scripts
     """ Function will read the TFRecords and extract data for every first first frame in every segment and save it as text file. the data could be easily loaded afterwards by the data class for every frame instead of loading the whole segment
     Args:
         root_dir: data split directory

@@ -115,20 +115,20 @@ if FLAGS.dataset == 'waymo':
     DATASET_CONFIG = WaymoDatasetConfig()
     TRAIN_DATASET = WaymoDetectionVotesDataset('train', num_points=NUM_POINT,
         use_height = (not FLAGS.no_height), augment=False)
-    TEST_DATASET = WaymoDetectionVotesDataset('val', num_points=NUM_POINT,
+    VAL_DATASET = WaymoDetectionVotesDataset('val', num_points=NUM_POINT,
         use_height = (not FLAGS.no_height), augment=False)
 
 else:
     print('Unknown dataset %s. Exiting...'%(FLAGS.dataset))
     exit(-1)
-# print(len(TRAIN_DATASET), len(TEST_DATASET))
+# print(len(TRAIN_DATASET), len(VAL_DATASET))
 print("Length of train dataset is ", len(TRAIN_DATASET))
 TRAIN_DATALOADER = DataLoader(TRAIN_DATASET, batch_size=BATCH_SIZE,
     shuffle=True, num_workers=4, worker_init_fn=my_worker_init_fn)
-TEST_DATALOADER = DataLoader(TEST_DATASET, batch_size=BATCH_SIZE,
+VAL_DATALOADER = DataLoader(VAL_DATASET, batch_size=BATCH_SIZE,
     shuffle=True, num_workers=4, worker_init_fn=my_worker_init_fn)
-# print(len(TRAIN_DATALOADER), len(TEST_DATALOADER))
-print("Length of val dataset is ", len(TRAIN_DATASET))
+# print(len(TRAIN_DATALOADER), len(VAL_DATALOADER))
+print("Length of val dataset is ", len(VAL_DATASET))
 
 # Init the model and optimzier
 MODEL = importlib.import_module(FLAGS.model) # import network module
@@ -191,7 +191,7 @@ def adjust_learning_rate(optimizer, epoch):
 
 # TFBoard Visualizers
 TRAIN_VISUALIZER = TfVisualizer(FLAGS, 'train')
-TEST_VISUALIZER = TfVisualizer(FLAGS, 'test')
+VAL_VISUALIZER = TfVisualizer(FLAGS, 'val')
 
 
 # Used for AP calculation
@@ -285,7 +285,7 @@ def evaluate_one_epoch():
     ap_calculator = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
         class2type_map=DATASET_CONFIG.class2type)
     net.eval() # set model to eval mode (for bn and dp)
-    for batch_idx, batch_data_label in enumerate(TEST_DATALOADER):
+    for batch_idx, batch_data_label in enumerate(VAL_DATALOADER):
         if batch_idx % 10 == 0:
             print('Eval batch: %d'%(batch_idx))
         for key in batch_data_label:
@@ -317,7 +317,7 @@ def evaluate_one_epoch():
             MODEL.dump_results(end_points, DUMP_DIR, DATASET_CONFIG) 
 
     # Log statistics
-    TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
+    VAL_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},
         (EPOCH_CNT+1)*len(TRAIN_DATALOADER)*BATCH_SIZE)
     for key in sorted(stat_dict.keys()):
         log_string('eval mean %s: %f'%(key, stat_dict[key]/(float(batch_idx+1))))
@@ -338,7 +338,7 @@ def evaluate_overfit_run():
     # ap_calculator = APCalculator(ap_iou_thresh=FLAGS.ap_iou_thresh,
         # class2type_map=DATASET_CONFIG.class2type)
     net.eval() # set model to eval mode (for bn and dp)
-    for batch_idx, batch_data_label in enumerate(TEST_DATALOADER):
+    for batch_idx, batch_data_label in enumerate(VAL_DATALOADER):
         
         print('Eval batch: %d'%(batch_idx))
         for key in batch_data_label:
@@ -377,6 +377,11 @@ def evaluate_overfit_run():
             dictie['point_cloud'] = batch_data_label['point_clouds'][0].detach().cpu().numpy()
             dictie['parsed_gt'] = batch_gt_map_cls[0]
             dictie['parsed_predictions'] = batch_pred_map_cls[0]
+            dictie['sa1_xyz'] = end_points['sa1_xyz'][0].detach().cpu().numpy()
+            dictie['sa2_xyz'] = end_points['sa2_xyz'][0].detach().cpu().numpy()
+            dictie['sa3_xyz'] = end_points['sa3_xyz'][0].detach().cpu().numpy()
+            dictie['sa4_xyz'] = end_points['sa4_xyz'][0].detach().cpu().numpy()
+            dictie['fp2_xyz'] = end_points['fp2_xyz'][0].detach().cpu().numpy()
             pickle.dump(dictie, fp)
 
         
@@ -388,7 +393,7 @@ def evaluate_overfit_run():
         #     MODEL.dump_results(end_points, DUMP_DIR, DATASET_CONFIG) 
 
     # Log statistics
-    TEST_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},(EPOCH_CNT))
+    VAL_VISUALIZER.log_scalars({key:stat_dict[key]/float(batch_idx+1) for key in stat_dict},(EPOCH_CNT))
     for key in sorted(stat_dict.keys()):
         log_string('eval mean %s: %f'%(key, stat_dict[key]/(float(batch_idx+1))))
 
@@ -415,9 +420,8 @@ def train(start_epoch):
         # REF: https://github.com/pytorch/pytorch/issues/5059
         np.random.seed()
         train_one_epoch()
-        if EPOCH_CNT == 0 or EPOCH_CNT % 10 == 9: # Eval every 10 epochs
-            print("Logging Visualizations for validation")
-            loss = evaluate_overfit_run()
+        print("Logging Visualizations for validation")
+        loss = evaluate_overfit_run()
             # loss = evaluate_one_epoch()
         # Save checkpoint
         # save_dict = {'epoch': epoch+1, # after training one epoch, the start_epoch should be epoch+1

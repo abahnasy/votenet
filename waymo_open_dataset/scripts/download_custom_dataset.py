@@ -69,6 +69,7 @@ for i in range(1, no_downloads):
     segment_dict = {}
     # extract the no. of frames needed
     segment_id = '_'.join(segment_name.split('_')[:5]) # will get the ID example: 'segment-10072140764565668044_4060_000_4080_000'
+    segment_dict['id'] = segment_id
     # create folder for the current segment
     segment_dir = os.path.join(DATA_DIR, segment_id)
     Path(segment_dir).mkdir(parents=True, exist_ok=True)
@@ -134,6 +135,7 @@ for i in range(1, no_downloads):
     # after every frame extracted, save the metadata for it    
     segment_dict['frame_count'] = frame_count
     segments_dict_list.append(segment_dict)
+    # TODO: delete the original tfrecord file to save space
 
 # save segmetns dictioanry list on desk, this would be used later to count the size of the dataset and navigate through the dataset
 pickle_out = open(os.path.join(DATA_DIR, 'segments_dict_list'), 'wb')
